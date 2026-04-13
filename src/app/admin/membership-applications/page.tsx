@@ -6,7 +6,6 @@ import { MembershipApplicationsManagement } from "@/components/admin/membership-
 import { Button } from "@/components/ui/button";
 import { db } from "@/db";
 import { mladiPiratiMembershipApplications } from "@/db/schema";
-import { requireAdmin } from "@/lib/auth/session";
 import {
   buildMembershipApplicationsListHref,
   buildMembershipApplicationsQueryString,
@@ -45,7 +44,6 @@ export default async function AdminMembershipApplicationsPage({
 }: {
   searchParams: Promise<MembershipApplicationsSearchParams>;
 }) {
-  await requireAdmin();
   const filters = parseMembershipApplicationsFilters(await searchParams);
   const queryString = buildMembershipApplicationsQueryString(filters);
   const whereClauses: SQL<unknown>[] = [];
