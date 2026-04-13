@@ -19,6 +19,7 @@ services:
     image: ghcr.io/mladi-pirati/applications-receiver:master-migrator
     restart: "no"
     command: ["bun", "run", "db:migrate"]
+    pull_policy: always
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       NODE_ENV: production
@@ -32,6 +33,7 @@ services:
       - bootstrap
     restart: "no"
     command: ["bun", "run", "bootstrap:admin"]
+    pull_policy: always
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       NODE_ENV: production
@@ -48,6 +50,7 @@ services:
     image: ghcr.io/mladi-pirati/applications-receiver:master
     restart: unless-stopped
     init: true
+    pull_policy: always
     environment:
       AUTH_SECRET: ${AUTH_SECRET}
       NODE_ENV: production
