@@ -63,8 +63,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    ports:
-      - "3000:3000"
     healthcheck:
       test:
         [
