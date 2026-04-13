@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1776081218882,
+      "tag": "0000_same_trauma",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776085311937,
+      "tag": "0001_loud_zarek",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776091510418,
+      "tag": "0002_hosted_form_sync",
+      "breakpoints": true
+    }
+  ]
+}

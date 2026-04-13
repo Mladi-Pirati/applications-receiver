@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mladi Pirati - Applications Receiver
 
-## Getting Started
+This project is a Next.js admin panel and ingestion API for Mladi pirati applications. It uses PostgreSQL, Drizzle ORM, Auth.js v5 credentials auth, Zod validation, and shadcn/ui.
 
-First, run the development server:
+## Setup
+
+Install dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Run PostgreSQL locally if needed:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+docker compose up -d db
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Generate and apply migrations:
 
-## Learn More
+```bash
+bun run db:generate
+bun run db:migrate
+```
 
-To learn more about Next.js, take a look at the following resources:
+Bootstrap the first admin user from env:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+bun run bootstrap:admin
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Start the app:
 
-## Deploy on Vercel
+```bash
+bun run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Required Environment Variables
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Copy `.env.example` to `.env` and provide:
+
+- `DATABASE_URL`
+- `AUTH_SECRET`
+- `INITIAL_ADMIN_NAME`
+- `INITIAL_ADMIN_USERNAME`
+- `INITIAL_ADMIN_PASSWORD`
+
+## Auth Overview
+
+- Auth.js v5 is configured with a credentials provider that signs users in with `username` and `password`.
+- User records live in PostgreSQL and passwords are stored as `argon2id` hashes.
+- Sessions use the JWT strategy and expose `id`, `fullName`, `username`, and `role`.
+- `/admin` is protected for authenticated users, while `/admin/users` is limited to `admin` users only.
+
+## Available Commands
+
+```bash
+bun run db:generate
+bun run db:migrate
+bun run db:studio
+bun run bootstrap:admin
+bun run lint
+bun run build
+```
