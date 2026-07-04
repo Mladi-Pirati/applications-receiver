@@ -4,6 +4,7 @@ import * as React from "react";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { differenceInYears } from "date-fns";
 import { DragDropProvider } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { move } from "@dnd-kit/helpers";
@@ -1254,6 +1255,9 @@ export function MemberDetailManagement({
   roles: Array<RoleOption>;
 }) {
   const fullName = `${member.firstName} ${member.lastName}`.trim();
+  const age = member.dateOfBirth
+    ? differenceInYears(new Date(), parseDateOnly(member.dateOfBirth))
+    : null;
   const profileKey = [
     member.id,
     member.firstName,
@@ -1284,6 +1288,11 @@ export function MemberDetailManagement({
             <h1 className="text-xl font-semibold">
               {fullName || member.username}
             </h1>
+            {age !== null ? (
+              <span className="text-sm font-normal text-muted-foreground">
+                ({age})
+              </span>
+            ) : null}
             {member.disabledAt ? (
               <Badge variant="outline">Disabled</Badge>
             ) : (

@@ -44,6 +44,26 @@ describe("member detail overview application data", () => {
   });
 });
 
+describe("member detail header age display", () => {
+  test("shows the member's age next to their name at the top of the page", () => {
+    const source = readFileSync(
+      "src/components/admin/members/member-detail-management.tsx",
+      "utf8",
+    );
+    const headerSource = source.slice(
+      source.indexOf("export function MemberDetailManagement"),
+    );
+
+    expect(source).toContain('from "date-fns"');
+    expect(source).toContain("differenceInYears");
+    expect(headerSource).toContain("parseDateOnly(member.dateOfBirth)");
+    expect(headerSource).toContain("years old");
+    expect(headerSource.indexOf("years old")).toBeLessThan(
+      headerSource.indexOf("<ProfileTab"),
+    );
+  });
+});
+
 describe("member detail role assignment UI", () => {
   test("uses direct role toggles without expiry fields or a save button", () => {
     const source = readFileSync(
