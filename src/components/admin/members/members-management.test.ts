@@ -127,6 +127,26 @@ describe("members management table implementation", () => {
     expect(source).toContain("disabled={Boolean(selectedUser?.email)}");
   });
 
+  test("renders a region column with a filter dialog covering every residence region", () => {
+    const source = readFileSync(
+      "src/components/admin/members/members-management.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("function RegionFilterDialog");
+    expect(source).toContain("residenceRegions");
+    expect(source).toContain("NO_REGION_MEMBER_FILTER");
+    expect(source).toContain('id: "region"');
+    expect(source).toContain("row.original.residenceRegion");
+    expect(source).toContain("No region");
+
+    const columnsSource = source.slice(
+      source.indexOf("const columns: ColumnDef<MemberListRow>[]"),
+      source.indexOf("// eslint-disable-next-line react-hooks/incompatible-library"),
+    );
+    expect(columnsSource).toContain("<RegionFilterDialog");
+  });
+
   test("shared table headers default to extra-bold text", () => {
     const source = readFileSync("src/components/ui/table.tsx", "utf8");
 

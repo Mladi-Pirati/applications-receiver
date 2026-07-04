@@ -7,18 +7,22 @@ let applicationRows: Record<
   string,
   {
     cityAndPostalCode: string;
+    dateOfBirth: string;
     discordUsername: string | null;
     email: string;
     firstName: string;
     id: string;
     lastName: string;
     phone: string | null;
+    placeOfBirth: string;
+    residenceRegion: string;
     status: "pending" | "approved" | "rejected";
     streetAddress: string;
   }
 > = {};
 let revalidatedPaths: Array<string> = [];
 let provisionedApplicationIds: Array<string> = [];
+let provisionedApplications: Array<Record<string, unknown>> = [];
 let discordApprovalEvents: Array<Record<string, unknown>> = [];
 let discordApprovalEventRequests: Array<{
   headers: Headers;
@@ -69,6 +73,7 @@ async function provisionMembershipApplicationMember(application: {
   id: string;
 }) {
   provisionedApplicationIds.push(application.id);
+  provisionedApplications.push(application);
   return {
     keycloakId: `keycloak-${application.id}`,
     memberId: `member-${application.id}`,
@@ -93,9 +98,19 @@ type MockUpdateSetValues = {
 const db = {
   query: {
     mladiPiratiMembershipApplications: {
-      async findFirst() {
-        return getApplication(
+      async findFirst(query?: { columns?: Record<string, boolean> }) {
+        const application = getApplication(
           currentFindFirstApplicationIds.shift() ?? "application-1",
+        );
+        if (!application || !query?.columns) return application;
+
+        return Object.fromEntries(
+          Object.entries(query.columns)
+            .filter(([, selected]) => selected)
+            .map(([key]) => [
+              key,
+              (application as Record<string, unknown>)[key],
+            ]),
         );
       },
     },
@@ -207,29 +222,36 @@ beforeEach(() => {
   applicationRows = {
     "application-1": {
       cityAndPostalCode: "1000 Ljubljana",
+      dateOfBirth: "1998-04-12",
       discordUsername: "ana",
       email: "ana@example.test",
       firstName: "Ana",
       id: "application-1",
       lastName: "Novak",
       phone: null,
+      placeOfBirth: "Ljubljana",
+      residenceRegion: "Osrednjeslovenska",
       status: "pending",
       streetAddress: "Piratska 1",
     },
     "application-2": {
       cityAndPostalCode: "1000 Ljubljana",
+      dateOfBirth: "1995-11-02",
       discordUsername: null,
       email: "bor@example.test",
       firstName: "Bor",
       id: "application-2",
       lastName: "Kralj",
       phone: null,
+      placeOfBirth: "Maribor",
+      residenceRegion: "Podravska",
       status: "pending",
       streetAddress: "Piratska 2",
     },
   };
   revalidatedPaths = [];
   provisionedApplicationIds = [];
+  provisionedApplications = [];
   discordApprovalEvents = [];
   discordApprovalEventRequests = [];
   discordApprovalEventShouldFail = false;
@@ -258,6 +280,11 @@ describe("membership application Discord approval events", () => {
       memberCreationStatus: "success",
     });
     expect(provisionedApplicationIds).toEqual(["application-1"]);
+    expect(provisionedApplications[0]).toMatchObject({
+      dateOfBirth: "1998-04-12",
+      placeOfBirth: "Ljubljana",
+      residenceRegion: "Osrednjeslovenska",
+    });
     expect(discordApprovalEvents).toHaveLength(1);
     expect(discordApprovalEvents[0]).toMatchObject({
       event: "membership_application_approved",

@@ -83,12 +83,14 @@ import {
 } from "@/components/ui/table";
 import { formatSlovenianDateTime } from "@/lib/date-format";
 import {
+  NO_REGION_MEMBER_FILTER,
   NO_ROLES_MEMBER_ROLE_FILTER,
   buildMembersFilterHref,
   buildMembersSortHref,
   type MemberListStatus,
   type MembersListFilters,
 } from "@/lib/members";
+import { residenceRegions } from "@/lib/membership-applications";
 import { cn } from "@/lib/utils";
 
 export type MemberRoleBadge = {
@@ -114,6 +116,7 @@ export type MemberListRow = {
   keycloakId: string;
   lastName: string;
   primaryEmail: string | null;
+  residenceRegion: string | null;
   roles: Array<MemberRoleBadge>;
   updatedAt: string;
   username: string;
@@ -757,6 +760,102 @@ function RolesFilterDialog({
   );
 }
 
+function RegionFilterDialog({ filters }: { filters: MembersListFilters }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [selectedRegions, setSelectedRegions] = useState(filters.region);
+
+  function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (nextOpen) setSelectedRegions(filters.region);
+  }
+
+  function applyFilter() {
+    router.replace(
+      buildMembersFilterHref(filters, {
+        region: selectedRegions,
+      }),
+      { scroll: false },
+    );
+    setOpen(false);
+  }
+
+  return (
+    <Dialog onOpenChange={handleOpenChange} open={open}>
+      <DialogTrigger asChild>
+        <FilterIconButton
+          active={filters.region.length > 0}
+          label="Filter members by region"
+        />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Filter by region</DialogTitle>
+          <DialogDescription>
+            Choose one or more residence regions to include in the table.
+          </DialogDescription>
+        </DialogHeader>
+        <div
+          className={cn(
+            "grid gap-2",
+            residenceRegions.length > 12
+              ? "max-h-[70vh] overflow-y-auto pr-1"
+              : "overflow-visible",
+          )}
+        >
+          <Label
+            className="flex items-center gap-2 text-xs font-normal"
+            htmlFor="members-region-none"
+          >
+            <Checkbox
+              checked={selectedRegions.includes(NO_REGION_MEMBER_FILTER)}
+              id="members-region-none"
+              onCheckedChange={(checked) =>
+                setSelectedRegions((current) =>
+                  toggleSelectedValue(
+                    current,
+                    NO_REGION_MEMBER_FILTER,
+                    checked === true,
+                  ),
+                )
+              }
+            />
+            No region
+          </Label>
+          {residenceRegions.map((region) => (
+            <Label
+              className="flex items-center gap-2 text-xs font-normal"
+              htmlFor={`members-region-${region}`}
+              key={region}
+            >
+              <Checkbox
+                checked={selectedRegions.includes(region)}
+                id={`members-region-${region}`}
+                onCheckedChange={(checked) =>
+                  setSelectedRegions((current) =>
+                    toggleSelectedValue(current, region, checked === true),
+                  )
+                }
+              />
+              {region}
+            </Label>
+          ))}
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={applyFilter} type="button">
+            Apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function InlineAssignmentPopover({
   assignedIds,
   disabled,
@@ -1135,6 +1234,21 @@ export function MembersManagement({
           title={row.original.currentMembership?.expiresAt ?? undefined}
         >
           {formatMembership(row.original.currentMembership)}
+        </span>
+      ),
+    },
+    {
+      id: "region",
+      header: () => (
+        <div className="flex items-center gap-1.5">
+          <span>Region</span>
+          <RegionFilterDialog filters={filters} />
+        </div>
+      ),
+      size: 180,
+      cell: ({ row }) => (
+        <span className="block truncate text-muted-foreground">
+          {row.original.residenceRegion ?? "No region"}
         </span>
       ),
     },

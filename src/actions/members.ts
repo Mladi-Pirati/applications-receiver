@@ -661,6 +661,7 @@ export async function updateMemberProfileAction(
         fullLegalName: fieldErrors.fullLegalName?.[0],
         lastName: fieldErrors.lastName?.[0],
         primaryEmail: fieldErrors.primaryEmail?.[0],
+        residenceRegion: fieldErrors.residenceRegion?.[0],
         username: fieldErrors.username?.[0],
       },
     };
@@ -694,6 +695,7 @@ export async function updateMemberProfileAction(
         fullLegalName: parsed.data.fullLegalName,
         lastName: parsed.data.lastName,
         notes: parsed.data.notes ?? "",
+        residenceRegion: parsed.data.residenceRegion || null,
         username: parsed.data.username,
       })
       .where(eq(members.id, memberId));

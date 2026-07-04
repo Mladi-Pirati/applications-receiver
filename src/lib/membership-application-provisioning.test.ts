@@ -14,6 +14,7 @@ import type { KeycloakUser } from "@/lib/keycloak/admin-client";
 
 const application = {
   cityAndPostalCode: "1000 Ljubljana",
+  dateOfBirth: "1998-04-12",
   discordUsername: "ana#1234",
   email: "ANA@example.TEST",
   firstName: "Ana Marija",
@@ -21,6 +22,8 @@ const application = {
   id: "application-1",
   lastName: "Černe Šž",
   phone: "+386 40 123 456",
+  placeOfBirth: "Ljubljana",
+  residenceRegion: "Osrednjeslovenska",
   streetAddress: "Piratska 1",
 };
 
@@ -146,6 +149,7 @@ describe("provisionMembershipApplicationMember", () => {
       {
         applicationId: "application-1",
         city: "Ljubljana",
+        dateOfBirth: "1998-04-12",
         discordUsername: "ana#1234",
         email: "ana@example.test",
         firstName: "Ana Marija",
@@ -154,7 +158,9 @@ describe("provisionMembershipApplicationMember", () => {
         lastName: "Černe Šž",
         membershipStartedAt: now,
         phone: "+386 40 123 456",
+        placeOfBirth: "Ljubljana",
         postalCode: "1000",
+        residenceRegion: "Osrednjeslovenska",
         streetAddress: "Piratska 1",
         username: "ana.marija.cerne.sz",
       },

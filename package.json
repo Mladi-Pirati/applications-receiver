@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "bun scripts/seed-access-control.ts",
-    "db:deploy": "bun run db:migrate && bun run db:seed",
+    "db:backfill-member-data": "bun scripts/backfill-member-application-data.ts",
+    "db:deploy": "bun run db:migrate && bun run db:seed && bun run db:backfill-member-data",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

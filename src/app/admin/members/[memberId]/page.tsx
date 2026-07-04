@@ -148,6 +148,7 @@ export default async function MemberDetailPage({
       canUpdate={canUpdate}
       contacts={contactRows}
       member={{
+        dateOfBirth: member.dateOfBirth,
         disabledAt: member.disabledAt?.toISOString() ?? null,
         firstName: member.firstName,
         fullLegalName: member.fullLegalName,
@@ -155,7 +156,9 @@ export default async function MemberDetailPage({
         keycloakId: member.keycloakId,
         lastName: member.lastName,
         notes: member.notes,
+        placeOfBirth: member.placeOfBirth,
         primaryEmail,
+        residenceRegion: member.residenceRegion,
         username: member.username,
       }}
       memberships={membershipRows.map((membership) => ({

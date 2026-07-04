@@ -27,6 +27,7 @@ export type MemberCreationStatus = "success" | "fail";
 
 export type MembershipApplicationProvisioningApplication = {
   cityAndPostalCode: string;
+  dateOfBirth: string;
   discordUsername: string | null;
   email: string;
   firstName: string;
@@ -34,6 +35,8 @@ export type MembershipApplicationProvisioningApplication = {
   id: string;
   lastName: string;
   phone: string | null;
+  placeOfBirth: string;
+  residenceRegion: string;
   streetAddress: string;
 };
 
@@ -50,6 +53,7 @@ export type MembershipApplicationProvisioningKeycloak = {
 export type FullMemberProfileInput = {
   applicationId: string;
   city: string;
+  dateOfBirth: string;
   discordUsername: string | null;
   email: string;
   firstName: string;
@@ -58,7 +62,9 @@ export type FullMemberProfileInput = {
   lastName: string;
   membershipStartedAt: Date;
   phone: string | null;
+  placeOfBirth: string;
   postalCode: string;
+  residenceRegion: string;
   streetAddress: string;
   username: string;
 };
@@ -154,6 +160,7 @@ export async function provisionMembershipApplicationMember(
   const member = await repository.createFullMemberProfile({
     applicationId: application.id,
     city: address.city,
+    dateOfBirth: application.dateOfBirth,
     discordUsername: application.discordUsername?.trim() || null,
     email,
     firstName: application.firstName,
@@ -162,7 +169,9 @@ export async function provisionMembershipApplicationMember(
     lastName: application.lastName,
     membershipStartedAt: now(),
     phone: application.phone?.trim() || null,
+    placeOfBirth: application.placeOfBirth,
     postalCode: address.postalCode,
+    residenceRegion: application.residenceRegion,
     streetAddress: application.streetAddress,
     username: keycloakUser.username,
   });
@@ -260,11 +269,15 @@ function createMembershipApplicationProvisioningRepository(): MembershipApplicat
         const createdMembers = await tx
           .insert(members)
           .values({
+            applicationId: input.applicationId,
+            dateOfBirth: input.dateOfBirth,
             firstName: input.firstName,
             fullLegalName: input.fullLegalName,
             keycloakId: input.keycloakId,
             lastName: input.lastName,
             notes: `Created from membership application ${input.applicationId}.`,
+            placeOfBirth: input.placeOfBirth,
+            residenceRegion: input.residenceRegion,
             username: input.username,
           })
           .returning({ id: members.id });

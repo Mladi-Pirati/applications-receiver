@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   exists,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -25,9 +26,12 @@ import {
   roles,
   permissions,
 } from "@/db/schema";
-import type { MembersListFilters } from "@/lib/members";
+import type { MembersCursorFilters, MembersListFilters } from "@/lib/members";
 import {
+  NO_REGION_MEMBER_FILTER,
   NO_ROLES_MEMBER_ROLE_FILTER,
+  decodeCursor,
+  encodeCursor,
   type MemberListSort,
 } from "@/lib/members";
 
@@ -44,7 +48,7 @@ type MemberApplicationAccessRow = {
   memberId: string;
 };
 
-export function buildMembersWhere(filters: MembersListFilters) {
+export function buildMembersWhere(filters: MembersListFilters | MembersCursorFilters) {
   const whereClauses = [];
 
   if (filters.status === "active") {
@@ -115,6 +119,29 @@ export function buildMembersWhere(filters: MembersListFilters) {
     }
   }
 
+  const regions = filters.region.filter(
+    (region) => region !== NO_REGION_MEMBER_FILTER,
+  );
+  const includesNoRegion = filters.region.includes(NO_REGION_MEMBER_FILTER);
+
+  if (includesNoRegion || regions.length) {
+    const regionClauses = [];
+
+    if (includesNoRegion) {
+      regionClauses.push(isNull(members.residenceRegion));
+    }
+
+    if (regions.length) {
+      regionClauses.push(inArray(members.residenceRegion, regions));
+    }
+
+    if (regionClauses.length === 1) {
+      whereClauses.push(regionClauses[0]);
+    } else {
+      whereClauses.push(or(...regionClauses));
+    }
+  }
+
   if (whereClauses.length === 0) return undefined;
   if (whereClauses.length === 1) return whereClauses[0];
   return and(...whereClauses);
@@ -147,6 +174,7 @@ export async function getMembersPage(filters: MembersListFilters) {
       id: members.id,
       keycloakId: members.keycloakId,
       lastName: members.lastName,
+      residenceRegion: members.residenceRegion,
       updatedAt: members.updatedAt,
       username: members.username,
     })
@@ -327,4 +355,63 @@ export async function memberHasActiveRole(memberId: string) {
     .limit(1);
 
   return rows.length > 0;
+}
+
+const fullNameExpr = sql<string>`lower(trim((${members.firstName} || ' ' || ${members.lastName})))`;
+
+export async function getMembersCursorPage(filters: MembersCursorFilters) {
+  const baseWhere = buildMembersWhere(filters);
+  const cursor = filters.cursor ? decodeCursor(filters.cursor) : null;
+
+  let where = baseWhere;
+  if (cursor) {
+    const keysetClause = or(
+      filters.sort === "name-asc"
+        ? sql`${fullNameExpr} > ${cursor.fullName}`
+        : sql`${fullNameExpr} < ${cursor.fullName}`,
+      and(
+        sql`${fullNameExpr} = ${cursor.fullName}`,
+        gt(members.username, cursor.username),
+      ),
+      and(
+        sql`${fullNameExpr} = ${cursor.fullName}`,
+        eq(members.username, cursor.username),
+        gt(members.id, cursor.id),
+      ),
+    );
+    where = baseWhere ? and(baseWhere, keysetClause) : keysetClause;
+  }
+
+  const fetchLimit = filters.limit + 1;
+  const baseRowsQuery = db
+    .select({
+      firstName: members.firstName,
+      fullName: fullNameExpr,
+      id: members.id,
+      lastName: members.lastName,
+      username: members.username,
+    })
+    .from(members);
+
+  const allRows = await (where ? baseRowsQuery.where(where) : baseRowsQuery)
+    .orderBy(...buildMembersOrderBy(filters.sort))
+    .limit(fetchLimit);
+
+  const hasMore = allRows.length > filters.limit;
+  const rows = hasMore ? allRows.slice(0, filters.limit) : allRows;
+
+  const lastRow = rows[rows.length - 1];
+  const nextCursor =
+    hasMore && lastRow
+      ? encodeCursor({
+          fullName: lastRow.fullName,
+          id: lastRow.id,
+          username: lastRow.username,
+        })
+      : null;
+
+  return {
+    nextCursor,
+    rows: rows.map(({ fullName: _fullName, ...row }) => row),
+  };
 }

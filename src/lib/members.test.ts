@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_MEMBERS_PAGE_SIZE,
   MAX_MEMBERS_PAGE_SIZE,
+  NO_REGION_MEMBER_FILTER,
   NO_ROLES_MEMBER_ROLE_FILTER,
   buildMembersFilterHref,
   buildMembersQueryString,
@@ -16,6 +17,7 @@ describe("member list filters", () => {
       page: 1,
       pageSize: DEFAULT_MEMBERS_PAGE_SIZE,
       q: "",
+      region: [],
       roleId: [],
       sort: "name-asc",
       status: "active",
@@ -28,6 +30,7 @@ describe("member list filters", () => {
         page: "-8",
         pageSize: String(MAX_MEMBERS_PAGE_SIZE + 500),
         q: "  ana  ",
+        region: [" Gorenjska ", "", "Goriška", "Gorenjska"],
         roleId: [" role-1 ", "", "role-2", "role-1"],
         sort: "name-desc",
         status: "disabled",
@@ -36,6 +39,7 @@ describe("member list filters", () => {
       page: 1,
       pageSize: MAX_MEMBERS_PAGE_SIZE,
       q: "ana",
+      region: ["Gorenjska", "Goriška"],
       roleId: ["role-1", "role-2"],
       sort: "name-desc",
       status: "disabled",
@@ -54,6 +58,7 @@ describe("member list filters", () => {
         page: 1,
         pageSize: DEFAULT_MEMBERS_PAGE_SIZE,
         q: "",
+        region: [],
         roleId: [],
         sort: "name-asc",
         status: "active",
@@ -65,12 +70,13 @@ describe("member list filters", () => {
         page: 2,
         pageSize: 25,
         q: "ana",
+        region: ["Gorenjska"],
         roleId: ["role-1", "role-2"],
         sort: "name-desc",
         status: "all",
       }),
     ).toBe(
-      "q=ana&status=all&roleId=role-1&roleId=role-2&sort=name-desc&page=2&pageSize=25",
+      "q=ana&status=all&roleId=role-1&roleId=role-2&region=Gorenjska&sort=name-desc&page=2&pageSize=25",
     );
   });
 
@@ -81,12 +87,14 @@ describe("member list filters", () => {
           page: 4,
           pageSize: 25,
           q: "ana",
+          region: ["Gorenjska"],
           roleId: ["role-1"],
           sort: "name-desc",
           status: "disabled",
         },
         {
           q: "",
+          region: [],
           roleId: [],
           status: "active",
         },
@@ -100,6 +108,7 @@ describe("member list filters", () => {
         page: 4,
         pageSize: 25,
         q: "ana",
+        region: [],
         roleId: ["role-1"],
         sort: "name-asc",
         status: "disabled",
@@ -113,6 +122,7 @@ describe("member list filters", () => {
         page: 2,
         pageSize: DEFAULT_MEMBERS_PAGE_SIZE,
         q: "",
+        region: [],
         roleId: [],
         sort: "name-desc",
         status: "active",
@@ -126,10 +136,25 @@ describe("member list filters", () => {
         page: 1,
         pageSize: DEFAULT_MEMBERS_PAGE_SIZE,
         q: "",
+        region: [],
         roleId: [NO_ROLES_MEMBER_ROLE_FILTER],
         sort: "name-asc",
         status: "active",
       }),
     ).toBe(`roleId=${NO_ROLES_MEMBER_ROLE_FILTER}`);
+  });
+
+  test("preserves the no-region filter in member list links", () => {
+    expect(
+      buildMembersQueryString({
+        page: 1,
+        pageSize: DEFAULT_MEMBERS_PAGE_SIZE,
+        q: "",
+        region: [NO_REGION_MEMBER_FILTER],
+        roleId: [],
+        sort: "name-asc",
+        status: "active",
+      }),
+    ).toBe(`region=${NO_REGION_MEMBER_FILTER}`);
   });
 });

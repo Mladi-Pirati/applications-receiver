@@ -113,9 +113,20 @@ export const members = pgTable(
     keycloakId: text("keycloak_id").notNull(),
     notes: text("notes"),
     disabledAt: timestamp("disabled_at", { withTimezone: true, mode: "date" }),
+    applicationId: text("application_id"),
+    dateOfBirth: date("date_of_birth", { mode: "string" }),
+    placeOfBirth: text("place_of_birth"),
+    residenceRegion: text("residence_region"),
     ...timestamps,
   },
-  (table) => [uniqueIndex("members_keycloak_id_unique").on(table.keycloakId)],
+  (table) => [
+    uniqueIndex("members_keycloak_id_unique").on(table.keycloakId),
+    foreignKey({
+      columns: [table.applicationId],
+      foreignColumns: [mladiPiratiMembershipApplications.id],
+      name: "members_application_id_membership_applications_id_fk",
+    }).onDelete("set null"),
+  ],
 );
 
 export const addresses = pgTable(

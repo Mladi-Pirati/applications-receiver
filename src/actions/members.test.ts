@@ -97,6 +97,14 @@ let sentWelcomeEmails: Array<{
 }> = [];
 let failingWelcomeEmailAddresses = new Set<string>();
 let failNextMemberInsertWithUniqueViolation = false;
+let updateUserProfileCalls: Array<{
+  email: string;
+  firstName: string;
+  lastName: string;
+  userId: string;
+  username: string;
+}> = [];
+let memberUpdateSetCalls: Array<Record<string, unknown>> = [];
 
 function createMembersKeycloakAdminClient() {
   return {
@@ -133,6 +141,17 @@ function createMembersKeycloakAdminClient() {
       const user = keycloakUsersById[userId];
       if (!user) throw new Error("Keycloak user not found");
       return user;
+    },
+    async updateUserProfile(
+      userId: string,
+      values: {
+        email: string;
+        firstName: string;
+        lastName: string;
+        username: string;
+      },
+    ) {
+      updateUserProfileCalls.push({ userId, ...values });
     },
     async ensureDefaultClientRole(userId: string) {
       void userId;
@@ -244,7 +263,7 @@ type MockDb = {
   };
   transaction<T>(callback: (tx: MockDb) => Promise<T>): Promise<T>;
   update(): {
-    set(): {
+    set(values: Record<string, unknown>): {
       where(): void;
     };
   };
@@ -374,7 +393,8 @@ const db: MockDb = {
   },
   update() {
     return {
-      set() {
+      set(values: Record<string, unknown>) {
+        memberUpdateSetCalls.push(values);
         return {
           where() {
             return;
@@ -448,6 +468,8 @@ beforeEach(() => {
   sentWelcomeEmails = [];
   failingWelcomeEmailAddresses = new Set<string>();
   failNextMemberInsertWithUniqueViolation = false;
+  updateUserProfileCalls = [];
+  memberUpdateSetCalls = [];
 });
 
 describe("createMemberAction", () => {
@@ -614,6 +636,66 @@ describe("createMemberAction", () => {
         keycloakId: "That Keycloak user is already linked to a member.",
       },
     });
+  });
+});
+
+describe("updateMemberProfileAction", () => {
+  test("persists the selected residence region", async () => {
+    const { updateMemberProfileAction } = await membersActionsPromise;
+
+    await expect(
+      updateMemberProfileAction("target-member", {
+        firstName: "Ada",
+        fullLegalName: "Ada Lovelace",
+        lastName: "Lovelace",
+        notes: "",
+        primaryEmail: "ada@example.test",
+        residenceRegion: "Gorenjska",
+        username: "ada",
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(memberUpdateSetCalls[0]).toMatchObject({
+      residenceRegion: "Gorenjska",
+    });
+  });
+
+  test("clears the residence region when left blank", async () => {
+    const { updateMemberProfileAction } = await membersActionsPromise;
+
+    await expect(
+      updateMemberProfileAction("target-member", {
+        firstName: "Ada",
+        fullLegalName: "Ada Lovelace",
+        lastName: "Lovelace",
+        notes: "",
+        primaryEmail: "ada@example.test",
+        residenceRegion: "",
+        username: "ada",
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(memberUpdateSetCalls[0]).toMatchObject({ residenceRegion: null });
+  });
+
+  test("rejects a residence region outside the closed list", async () => {
+    const { updateMemberProfileAction } = await membersActionsPromise;
+
+    await expect(
+      updateMemberProfileAction("target-member", {
+        firstName: "Ada",
+        fullLegalName: "Ada Lovelace",
+        lastName: "Lovelace",
+        notes: "",
+        primaryEmail: "ada@example.test",
+        residenceRegion: "Atlantis" as never,
+        username: "ada",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      fieldErrors: { residenceRegion: expect.any(String) },
+    });
+    expect(memberUpdateSetCalls).toEqual([]);
   });
 });
 

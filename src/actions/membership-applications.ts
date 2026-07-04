@@ -547,6 +547,7 @@ async function getApplicationForMemberCreation(applicationId: string) {
   return db.query.mladiPiratiMembershipApplications.findFirst({
     columns: {
       cityAndPostalCode: true,
+      dateOfBirth: true,
       discordUsername: true,
       email: true,
       firstName: true,
@@ -554,6 +555,8 @@ async function getApplicationForMemberCreation(applicationId: string) {
       id: true,
       lastName: true,
       phone: true,
+      placeOfBirth: true,
+      residenceRegion: true,
       status: true,
       streetAddress: true,
     },

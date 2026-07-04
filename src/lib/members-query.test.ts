@@ -3,7 +3,10 @@ import { count } from "drizzle-orm";
 
 import { db } from "@/db";
 import { members } from "@/db/schema";
-import { NO_ROLES_MEMBER_ROLE_FILTER } from "@/lib/members";
+import {
+  NO_REGION_MEMBER_FILTER,
+  NO_ROLES_MEMBER_ROLE_FILTER,
+} from "@/lib/members";
 import {
   buildMembersOrderBy,
   buildMembersWhere,
@@ -103,6 +106,7 @@ describe("member query role filtering", () => {
       page: 1,
       pageSize: 50,
       q: "",
+      region: [],
       roleId: [NO_ROLES_MEMBER_ROLE_FILTER],
       sort: "name-asc",
       status: "active",
@@ -123,6 +127,7 @@ describe("member query role filtering", () => {
       page: 1,
       pageSize: 50,
       q: "",
+      region: [],
       roleId: ["role-1", "role-2"],
       sort: "name-asc",
       status: "active",
@@ -144,6 +149,7 @@ describe("member query role filtering", () => {
       page: 1,
       pageSize: 50,
       q: "",
+      region: [],
       roleId: [NO_ROLES_MEMBER_ROLE_FILTER, "role-1"],
       sort: "name-asc",
       status: "all",
@@ -160,6 +166,73 @@ describe("member query role filtering", () => {
     expect(query.sql).toContain(" or ");
     expect(query.sql).not.toContain("expires_at");
     expect(query.params).toEqual(["role-1"]);
+  });
+});
+
+describe("member query region filtering", () => {
+  test("filters by any selected region", () => {
+    const where = buildMembersWhere({
+      page: 1,
+      pageSize: 50,
+      q: "",
+      region: ["Gorenjska", "Goriška"],
+      roleId: [],
+      sort: "name-asc",
+      status: "active",
+    });
+
+    const query = db
+      .select({ value: count() })
+      .from(members)
+      .where(where)
+      .toSQL();
+
+    expect(query.sql).toContain('"members"."residence_region" in ($1, $2)');
+    expect(query.params).toEqual(["Gorenjska", "Goriška"]);
+  });
+
+  test("filters members with no region on file", () => {
+    const where = buildMembersWhere({
+      page: 1,
+      pageSize: 50,
+      q: "",
+      region: [NO_REGION_MEMBER_FILTER],
+      roleId: [],
+      sort: "name-asc",
+      status: "active",
+    });
+
+    const query = db
+      .select({ value: count() })
+      .from(members)
+      .where(where)
+      .toSQL();
+
+    expect(query.sql).toContain('"members"."residence_region" is null');
+    expect(query.params).toEqual([]);
+  });
+
+  test("combines selected regions and no-region filter with OR logic", () => {
+    const where = buildMembersWhere({
+      page: 1,
+      pageSize: 50,
+      q: "",
+      region: [NO_REGION_MEMBER_FILTER, "Gorenjska"],
+      roleId: [],
+      sort: "name-asc",
+      status: "active",
+    });
+
+    const query = db
+      .select({ value: count() })
+      .from(members)
+      .where(where)
+      .toSQL();
+
+    expect(query.sql).toContain('"members"."residence_region" is null');
+    expect(query.sql).toContain('"members"."residence_region" in ($1)');
+    expect(query.sql).toContain(" or ");
+    expect(query.params).toEqual(["Gorenjska"]);
   });
 });
 

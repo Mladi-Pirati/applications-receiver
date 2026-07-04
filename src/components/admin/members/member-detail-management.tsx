@@ -64,8 +64,18 @@ import {
   type AddressLabel,
   type ContactType,
 } from "@/db/schema";
-import { formatSlovenianDateTime } from "@/lib/date-format";
+import {
+  formatSlovenianDate,
+  formatSlovenianDateTime,
+  parseDateOnly,
+} from "@/lib/date-format";
+import {
+  residenceRegions,
+  type ResidenceRegion,
+} from "@/lib/membership-applications";
 import { cn } from "@/lib/utils";
+
+const UNSET_RESIDENCE_REGION = "__unset";
 
 type RoleOption = {
   id: string;
@@ -116,6 +126,7 @@ type MembershipRow = {
 };
 
 type MemberDetail = {
+  dateOfBirth: string | null;
   disabledAt: string | null;
   firstName: string;
   fullLegalName: string;
@@ -123,7 +134,9 @@ type MemberDetail = {
   keycloakId: string;
   lastName: string;
   notes: string | null;
+  placeOfBirth: string | null;
   primaryEmail: string;
+  residenceRegion: string | null;
   username: string;
 };
 
@@ -152,6 +165,7 @@ function ProfileTab({
     lastName: member.lastName,
     notes: member.notes ?? "",
     primaryEmail: member.primaryEmail,
+    residenceRegion: member.residenceRegion ?? UNSET_RESIDENCE_REGION,
     username: member.username,
   });
   const [message, setMessage] = useState<string | null>(null);
@@ -167,6 +181,10 @@ function ProfileTab({
         lastName: profileForm.lastName,
         notes: profileForm.notes,
         primaryEmail: profileForm.primaryEmail,
+        residenceRegion:
+          profileForm.residenceRegion === UNSET_RESIDENCE_REGION
+            ? ""
+            : (profileForm.residenceRegion as ResidenceRegion),
         username: profileForm.username,
       });
       setMessage(result.message ?? null);
@@ -248,6 +266,51 @@ function ProfileTab({
               required
               value={profileForm.fullLegalName}
             />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field>
+              <Label className="text-xs">Date of birth</Label>
+              <Input
+                disabled
+                readOnly
+                value={
+                  member.dateOfBirth
+                    ? formatSlovenianDate(parseDateOnly(member.dateOfBirth))
+                    : "Not on file"
+                }
+              />
+            </Field>
+            <Field>
+              <Label className="text-xs">Place of birth</Label>
+              <Input disabled readOnly value={member.placeOfBirth ?? "Not on file"} />
+            </Field>
+          </div>
+          <Field>
+            <Label className="text-xs">Region</Label>
+            <Select
+              disabled={!canUpdate}
+              onValueChange={(value) =>
+                setProfileForm((current) => ({
+                  ...current,
+                  residenceRegion: value,
+                }))
+              }
+              value={profileForm.residenceRegion}
+            >
+              <SelectTrigger disabled={!canUpdate}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNSET_RESIDENCE_REGION}>
+                  No region
+                </SelectItem>
+                {residenceRegions.map((region) => (
+                  <SelectItem key={region} value={region}>
+                    {region}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field>
             <Label className="text-xs">Username</Label>

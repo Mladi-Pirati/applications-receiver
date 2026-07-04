@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ADDRESS_LABELS, CONTACT_TYPES } from "@/db/schema";
+import { residenceRegions } from "@/lib/membership-applications";
 
 const trimmedRequired = (field: string, max = 160) =>
   z.string().trim().min(1, `${field} is required.`).max(max);
@@ -37,6 +38,7 @@ export const memberProfileSchema = z.object({
   fullLegalName: trimmedRequired("Full legal name", 200),
   notes: optionalText(),
   primaryEmail: primaryEmailSchema,
+  residenceRegion: z.enum(residenceRegions).optional().or(z.literal("")),
   username: trimmedRequired("Username", 120),
 });
 

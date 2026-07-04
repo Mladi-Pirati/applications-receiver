@@ -127,6 +127,50 @@ describe("member validation", () => {
     ).toBe(true);
   });
 
+  test("accepts a residence region from the closed list", () => {
+    const result = memberProfileSchema.safeParse({
+      firstName: "Ana",
+      fullLegalName: "Ana Novak",
+      lastName: "Novak",
+      notes: "",
+      primaryEmail: "ana@example.test",
+      residenceRegion: "Gorenjska",
+      username: "ana",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.residenceRegion).toBe("Gorenjska");
+  });
+
+  test("allows clearing the residence region with an empty string", () => {
+    const result = memberProfileSchema.safeParse({
+      firstName: "Ana",
+      fullLegalName: "Ana Novak",
+      lastName: "Novak",
+      notes: "",
+      primaryEmail: "ana@example.test",
+      residenceRegion: "",
+      username: "ana",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.residenceRegion).toBe("");
+  });
+
+  test("rejects a residence region outside the closed list", () => {
+    const result = memberProfileSchema.safeParse({
+      firstName: "Ana",
+      fullLegalName: "Ana Novak",
+      lastName: "Novak",
+      notes: "",
+      primaryEmail: "ana@example.test",
+      residenceRegion: "Atlantis",
+      username: "ana",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   test("allows indefinite memberships and ended memberships", () => {
     expect(
       membershipRenewalSchema.parse({
