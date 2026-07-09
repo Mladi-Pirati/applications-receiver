@@ -29,6 +29,8 @@ let syncMemberApplicationRolesCalls: Array<{
   keycloakId: string;
   memberId: string;
 }> = [];
+let syncedDiscordMemberIds: Array<string> = [];
+let removedDiscordMemberIds: Array<string> = [];
 let revalidatedPaths: Array<string> = [];
 let keycloakUsersById: Record<
   string,
@@ -105,6 +107,30 @@ let updateUserProfileCalls: Array<{
   username: string;
 }> = [];
 let memberUpdateSetCalls: Array<Record<string, unknown>> = [];
+let discordIdOwnerId: string | null = null;
+let botGuildMember: {
+  displayName: string | null;
+  userId: string;
+  username: string;
+} | null = null;
+let botGuildMemberError: Error | null = null;
+let getGuildMemberCalls: Array<string> = [];
+
+function createDiscordBotClient() {
+  return {
+    async listGuildRoles() {
+      return [];
+    },
+    async syncRoles() {
+      return { results: [], userId: null, username: null };
+    },
+    async getGuildMember(discordUserId: string) {
+      getGuildMemberCalls.push(discordUserId);
+      if (botGuildMemberError) throw botGuildMemberError;
+      return botGuildMember;
+    },
+  };
+}
 
 function createMembersKeycloakAdminClient() {
   return {
@@ -205,6 +231,15 @@ async function syncMemberApplicationRoles(values: {
   syncMemberApplicationRolesCalls.push(values);
 }
 
+async function syncMemberDiscordRolesSafely(memberId: string) {
+  syncedDiscordMemberIds.push(memberId);
+  return { results: [], status: "noop" as const };
+}
+
+async function removeAllMemberDiscordRolesSafely(memberId: string) {
+  removedDiscordMemberIds.push(memberId);
+}
+
 async function memberHasActiveRole(memberId: string) {
   return memberRoleRows.some((row) => row.memberId === memberId);
 }
@@ -282,6 +317,9 @@ const db: MockDb = {
     members: {
       async findFirst(options: { columns?: Record<string, true> }) {
         if (options.columns?.keycloakId) return targetMember;
+        if (options.columns?.discordUserId) {
+          return discordIdOwnerId ? { id: discordIdOwnerId } : null;
+        }
         return currentMemberId ? { id: currentMemberId } : null;
       },
     },
@@ -407,6 +445,7 @@ const db: MockDb = {
 
 mock.module("next/cache", () => ({ revalidatePath }));
 mock.module("@/lib/members-action-dependencies", () => ({
+  createDiscordBotClient,
   createMembersKeycloakAdminClient,
   db,
   getCurrentUser,
@@ -414,8 +453,10 @@ mock.module("@/lib/members-action-dependencies", () => ({
   getHighestRoleRank,
   hasPermission,
   memberHasActiveRole,
+  removeAllMemberDiscordRolesSafely,
   roleGrantsAnyPermission,
   sendMembershipWelcomeEmail,
+  syncMemberDiscordRolesSafely,
   syncMemberApplicationRoles,
 }));
 
@@ -442,6 +483,8 @@ beforeEach(() => {
   deleteUserCalls = [];
   removeAllClientRolesCalls = [];
   syncMemberApplicationRolesCalls = [];
+  syncedDiscordMemberIds = [];
+  removedDiscordMemberIds = [];
   revalidatedPaths = [];
   keycloakUsersById = {
     "selected-keycloak-user": {
@@ -470,6 +513,10 @@ beforeEach(() => {
   failNextMemberInsertWithUniqueViolation = false;
   updateUserProfileCalls = [];
   memberUpdateSetCalls = [];
+  discordIdOwnerId = null;
+  botGuildMember = null;
+  botGuildMemberError = null;
+  getGuildMemberCalls = [];
 });
 
 describe("createMemberAction", () => {
@@ -953,5 +1000,142 @@ describe("resendWelcomeEmailAction", () => {
     expect(sentWelcomeEmails.map((email) => email.email)).toEqual([
       "cilka@example.test",
     ]);
+  });
+});
+
+describe("updateMemberDiscordIdAction", () => {
+  test("links a guild member, caches the username, and re-syncs roles", async () => {
+    const { updateMemberDiscordIdAction } = await membersActionsPromise;
+    botGuildMember = {
+      displayName: "Ada",
+      userId: "123456789012345678",
+      username: "ada.dc",
+    };
+
+    const result = await updateMemberDiscordIdAction(
+      "target-member",
+      "123456789012345678",
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(getGuildMemberCalls).toEqual(["123456789012345678"]);
+    expect(memberUpdateSetCalls).toContainEqual({
+      discordUserId: "123456789012345678",
+    });
+    expect(createdContacts).toContainEqual(
+      expect.objectContaining({
+        memberId: "target-member",
+        type: "discord",
+        value: "ada.dc",
+      }),
+    );
+    expect(syncedDiscordMemberIds).toEqual(["target-member"]);
+  });
+
+  test("rejects malformed discord ids without calling the bot", async () => {
+    const { updateMemberDiscordIdAction } = await membersActionsPromise;
+
+    const result = await updateMemberDiscordIdAction(
+      "target-member",
+      "ada.dc",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.discordUserId).toBeTruthy();
+    }
+    expect(getGuildMemberCalls).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+
+  test("rejects ids that are not members of the guild", async () => {
+    const { updateMemberDiscordIdAction } = await membersActionsPromise;
+    botGuildMember = null;
+
+    const result = await updateMemberDiscordIdAction(
+      "target-member",
+      "123456789012345678",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.discordUserId).toContain(
+        "not a member of the Discord server",
+      );
+    }
+    expect(memberUpdateSetCalls).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+
+  test("rejects ids that are already linked to another member", async () => {
+    const { updateMemberDiscordIdAction } = await membersActionsPromise;
+    botGuildMember = {
+      displayName: null,
+      userId: "123456789012345678",
+      username: "ada.dc",
+    };
+    discordIdOwnerId = "other-member";
+
+    const result = await updateMemberDiscordIdAction(
+      "target-member",
+      "123456789012345678",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.discordUserId).toContain("already linked");
+    }
+    expect(memberUpdateSetCalls).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+
+  test("allows re-saving the id already linked to the same member", async () => {
+    const { updateMemberDiscordIdAction } = await membersActionsPromise;
+    botGuildMember = {
+      displayName: null,
+      userId: "123456789012345678",
+      username: "ada.dc",
+    };
+    discordIdOwnerId = "target-member";
+
+    const result = await updateMemberDiscordIdAction(
+      "target-member",
+      "123456789012345678",
+    );
+
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  test("fails gracefully when the bot cannot be reached", async () => {
+    const { updateMemberDiscordIdAction } = await membersActionsPromise;
+    botGuildMemberError = new Error("bot offline");
+
+    const result = await updateMemberDiscordIdAction(
+      "target-member",
+      "123456789012345678",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(memberUpdateSetCalls).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+});
+
+describe("upsertContactAction discord guard", () => {
+  test("rejects discord contacts in favor of the Discord ID flow", async () => {
+    const { upsertContactAction } = await membersActionsPromise;
+
+    const result = await upsertContactAction("target-member", {
+      isPrimary: false,
+      label: "",
+      type: "discord",
+      value: "ada.dc",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.type).toBeTruthy();
+    }
+    expect(createdContacts).toEqual([]);
   });
 });

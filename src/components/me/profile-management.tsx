@@ -8,10 +8,12 @@ import { PencilIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import {
   deleteMyAddressAction,
   deleteMyContactAction,
+  updateMyDiscordIdAction,
   updateMyProfileAction,
   upsertMyAddressAction,
   upsertMyContactAction,
 } from "@/actions/me";
+import { DiscordIdDialog } from "@/components/shared/discord-id-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +63,7 @@ type ProfileMember = {
   addresses: Array<AddressRow>;
   contacts: Array<ContactRow>;
   dateOfBirth: string | null;
+  discordUserId: string | null;
   firstName: string;
   fullLegalName: string;
   id: string;
@@ -349,8 +352,20 @@ const emptyContactForm: ContactInput = {
   value: "",
 };
 
-function ContactsCard({ contacts }: { contacts: Array<ContactRow> }) {
+function ContactsCard({
+  contacts,
+  discordUserId,
+}: {
+  contacts: Array<ContactRow>;
+  discordUserId: string | null;
+}) {
   const router = useRouter();
+  const discordContact = contacts.find(
+    (contact) => contact.type === "discord",
+  );
+  const otherContacts = contacts.filter(
+    (contact) => contact.type !== "discord",
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [contactForm, setContactForm] =
     useState<ContactInput>(emptyContactForm);
@@ -421,12 +436,32 @@ function ContactsCard({ contacts }: { contacts: Array<ContactRow> }) {
       <CardContent className="grid gap-4 p-4">
         <Message tone={messageTone} value={message} />
         <div className="grid gap-2">
-          {contacts.length === 0 ? (
+          <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-[140px_minmax(0,1fr)_auto] sm:items-center">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">discord</Badge>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {discordContact?.value || "no username"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Linked by Discord user ID; the username is kept in sync
+                automatically.
+              </p>
+            </div>
+            <div className="flex gap-2 sm:justify-end">
+              <DiscordIdDialog
+                action={updateMyDiscordIdAction}
+                currentDiscordUserId={discordUserId}
+              />
+            </div>
+          </div>
+          {otherContacts.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               No contacts on file.
             </p>
           ) : (
-            contacts.map((contact) => (
+            otherContacts.map((contact) => (
               <div
                 className="grid gap-3 rounded-md border p-3 sm:grid-cols-[140px_minmax(0,1fr)_auto] sm:items-center"
                 key={contact.id}
@@ -513,11 +548,13 @@ function ContactsCard({ contacts }: { contacts: Array<ContactRow> }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CONTACT_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
+                  {CONTACT_TYPES.filter((type) => type !== "discord").map(
+                    (type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
               <FieldError value={fieldErrors.type} />
@@ -857,7 +894,10 @@ export function ProfileManagement({ member }: { member: ProfileMember }) {
         </p>
       </div>
       <ProfileCard member={member} />
-      <ContactsCard contacts={member.contacts} />
+      <ContactsCard
+        contacts={member.contacts}
+        discordUserId={member.discordUserId}
+      />
       <AddressesCard addresses={member.addresses} />
     </div>
   );

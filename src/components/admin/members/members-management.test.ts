@@ -59,18 +59,31 @@ describe("members management table implementation", () => {
     expect(source).not.toContain("bulkResendWelcomeEmailAction");
   });
 
-  test("renders popover controls for inline role and application assignment", () => {
+  test("renders popover controls for inline group, role, and application assignment", () => {
     const source = readFileSync(
       "src/components/admin/members/members-management.tsx",
       "utf8",
     );
 
     expect(source).toContain("InlineAssignmentPopover");
+    expect(source).toContain("setMemberGroupAssignmentAction");
     expect(source).toContain("updateMemberRolesAction");
     expect(source).toContain("setMemberApplicationAccessAction");
+    expect(source).toContain('id: "groups"');
     expect(source).toContain('id: "applications"');
     expect(source).toContain("CommandInput");
     expect(source).toContain("PopoverTrigger");
+
+    const columnsSource = source.slice(
+      source.indexOf("const columns: ColumnDef<MemberListRow>[]"),
+      source.indexOf("// eslint-disable-next-line react-hooks/incompatible-library"),
+    );
+    expect(columnsSource.indexOf('id: "groups"')).toBeLessThan(
+      columnsSource.indexOf('id: "roles"'),
+    );
+    expect(columnsSource.indexOf('id: "roles"')).toBeLessThan(
+      columnsSource.indexOf('id: "applications"'),
+    );
   });
 
   test("optimistically updates inline assignment checkboxes without closing the popover", () => {

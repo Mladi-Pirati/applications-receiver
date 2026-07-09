@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { setMemberApplicationAccessAction } from "@/actions/access-applications";
+import { setMemberGroupAssignmentAction } from "@/actions/groups";
 import {
   createMemberAction,
   searchKeycloakUsersAction,
@@ -55,13 +56,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -104,6 +98,11 @@ export type MemberApplicationBadge = {
   name: string;
 };
 
+export type MemberGroupBadge = {
+  id: string;
+  name: string;
+};
+
 export type MemberListRow = {
   applications: Array<MemberApplicationBadge>;
   currentMembership: {
@@ -115,6 +114,7 @@ export type MemberListRow = {
   id: string;
   keycloakId: string;
   lastName: string;
+  groups: Array<MemberGroupBadge>;
   primaryEmail: string | null;
   residenceRegion: string | null;
   roles: Array<MemberRoleBadge>;
@@ -143,6 +143,11 @@ type RoleOption = {
 };
 
 type ApplicationOption = {
+  id: string;
+  name: string;
+};
+
+type GroupOption = {
   id: string;
   name: string;
 };
@@ -1023,6 +1028,7 @@ export function MembersManagement({
   canCreate,
   canManageRoles,
   filters,
+  groupOptions,
   nextPageHref,
   page,
   pageCount,
@@ -1037,6 +1043,7 @@ export function MembersManagement({
   canCreate: boolean;
   canManageRoles: boolean;
   filters: MembersListFilters;
+  groupOptions: Array<GroupOption>;
   nextPageHref: string;
   page: number;
   pageCount: number;
@@ -1048,6 +1055,18 @@ export function MembersManagement({
   totalCount: number;
 }) {
   const router = useRouter();
+
+  async function updateInlineGroupAssignment(
+    row: MemberListRow,
+    groupId: string,
+    assigned: boolean,
+  ) {
+    const result = await setMemberGroupAssignmentAction(row.id, {
+      assigned,
+      groupId,
+    });
+    return result.ok ? null : result.message;
+  }
 
   async function updateInlineRoles(
     row: MemberListRow,
@@ -1142,6 +1161,37 @@ export function MembersManagement({
           <Badge variant="outline">Disabled</Badge>
         ) : (
           <Badge>Active</Badge>
+        ),
+    },
+    {
+      id: "groups",
+      header: "Groups",
+      size: 240,
+      cell: ({ row }) =>
+        canManageRoles ? (
+          <InlineAssignmentPopover
+            assignedIds={new Set(row.original.groups.map((group) => group.id))}
+            emptyAssignedLabel="No groups"
+            emptyLabel="No groups found."
+            label="Assign groups"
+            onAssignmentsChanged={() => router.refresh()}
+            onToggle={(groupId, assigned) =>
+              updateInlineGroupAssignment(row.original, groupId, assigned)
+            }
+            options={groupOptions}
+          />
+        ) : (
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {row.original.groups.length ? (
+              row.original.groups.slice(0, 3).map((group) => (
+                <Badge key={group.id} variant="outline">
+                  {group.name}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-muted-foreground">No groups</span>
+            )}
+          </div>
         ),
     },
     {
@@ -1319,6 +1369,7 @@ export function MembersManagement({
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         className={
+                          cell.column.id === "groups" ||
                           cell.column.id === "roles" ||
                           cell.column.id === "applications"
                             ? "whitespace-normal"
@@ -1356,26 +1407,22 @@ export function MembersManagement({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>Per page</span>
-                <Select
-                  onValueChange={(v) => {
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  onChange={(event) => {
                     const option = pageSizeOptions.find(
-                      ({ value }) => value === Number(v),
+                      ({ value }) => value === Number(event.target.value),
                     );
                     if (option) router.push(option.href);
                   }}
                   value={String(pageSize)}
                 >
-                  <SelectTrigger className="h-8 w-16 rounded-md">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {pageSizeOptions.map((option) => (
-                      <SelectItem key={option.value} value={String(option.value)}>
-                        {option.value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  {pageSizeOptions.map((option) => (
+                    <option key={option.value} value={String(option.value)}>
+                      {option.value}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex gap-2">
                 <Button asChild variant="outline">

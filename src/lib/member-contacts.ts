@@ -10,6 +10,39 @@ export type DbExecutor = {
   update: typeof db.update;
 };
 
+export async function upsertDiscordContact(
+  memberId: string,
+  username: string,
+  tx: DbExecutor,
+) {
+  const existing = await tx.query.contacts.findFirst({
+    columns: { id: true, value: true },
+    where: and(eq(contacts.memberId, memberId), eq(contacts.type, "discord")),
+  });
+
+  if (existing) {
+    if (existing.value !== username) {
+      await tx
+        .update(contacts)
+        .set({ value: username })
+        .where(eq(contacts.id, existing.id));
+    }
+    return;
+  }
+
+  const [sortRow] = await tx
+    .select({ value: max(contacts.sortOrder) })
+    .from(contacts)
+    .where(eq(contacts.memberId, memberId));
+
+  await tx.insert(contacts).values({
+    memberId,
+    sortOrder: Number(sortRow?.value ?? -1) + 1,
+    type: "discord",
+    value: username,
+  });
+}
+
 export async function ensurePrimaryEmail(
   memberId: string,
   email: string,

@@ -18,7 +18,11 @@ import { db } from "@/db";
 import {
   accessApplications,
   contacts,
+  groupApplicationAccess,
+  groupRoles,
+  groups,
   memberApplicationAccess,
+  memberGroups,
   memberRoles,
   members,
   memberships,
@@ -45,6 +49,12 @@ type ActiveRoleRow = {
 type MemberApplicationAccessRow = {
   applicationId: string;
   applicationName: string;
+  memberId: string;
+};
+
+type MemberGroupRow = {
+  groupId: string;
+  groupName: string;
   memberId: string;
 };
 
@@ -85,29 +95,50 @@ export function buildMembersWhere(filters: MembersListFilters | MembersCursorFil
 
     if (includesNoRoles) {
       roleClauses.push(
-        notExists(
-          db
-            .select({ value: sql`1` })
-            .from(memberRoles)
-            .where(
-              eq(memberRoles.memberId, members.id),
-            ),
+        and(
+          notExists(
+            db
+              .select({ value: sql`1` })
+              .from(memberRoles)
+              .where(eq(memberRoles.memberId, members.id)),
+          ),
+          notExists(
+            db
+              .select({ value: sql`1` })
+              .from(memberGroups)
+              .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+              .where(eq(memberGroups.memberId, members.id)),
+          ),
         ),
       );
     }
 
     if (roleIds.length) {
       roleClauses.push(
-        exists(
-          db
-            .select({ value: sql`1` })
-            .from(memberRoles)
-            .where(
-              and(
-                eq(memberRoles.memberId, members.id),
-                inArray(memberRoles.roleId, roleIds),
+        or(
+          exists(
+            db
+              .select({ value: sql`1` })
+              .from(memberRoles)
+              .where(
+                and(
+                  eq(memberRoles.memberId, members.id),
+                  inArray(memberRoles.roleId, roleIds),
+                ),
               ),
-            ),
+          ),
+          exists(
+            db
+              .select({ value: sql`1` })
+              .from(memberGroups)
+              .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+              .where(
+                and(
+                  eq(memberGroups.memberId, members.id),
+                  inArray(groupRoles.roleId, roleIds),
+                ),
+              ),
+          ),
         ),
       );
     }
@@ -203,40 +234,88 @@ export async function getMembersPage(filters: MembersListFilters) {
         )
         .orderBy(desc(contacts.isPrimary), asc(contacts.sortOrder))
     : [];
-  const roleRows = memberIds.length
-    ? await db
-        .select({
-          memberId: memberRoles.memberId,
-          roleId: roles.id,
-          roleKey: roles.key,
-          roleName: roles.name,
-        })
-        .from(memberRoles)
-        .innerJoin(roles, eq(memberRoles.roleId, roles.id))
-        .where(
-          inArray(memberRoles.memberId, memberIds),
-        )
-        .orderBy(asc(roles.rank))
+  const roleRows: Array<ActiveRoleRow> = memberIds.length
+    ? [
+        ...(await db
+          .select({
+            memberId: memberRoles.memberId,
+            roleId: roles.id,
+            roleKey: roles.key,
+            roleName: roles.name,
+          })
+          .from(memberRoles)
+          .innerJoin(roles, eq(memberRoles.roleId, roles.id))
+          .where(inArray(memberRoles.memberId, memberIds))
+          .orderBy(asc(roles.rank))),
+        ...(await db
+          .select({
+            memberId: memberGroups.memberId,
+            roleId: roles.id,
+            roleKey: roles.key,
+            roleName: roles.name,
+          })
+          .from(memberGroups)
+          .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+          .innerJoin(roles, eq(groupRoles.roleId, roles.id))
+          .where(inArray(memberGroups.memberId, memberIds))
+          .orderBy(asc(roles.rank))),
+      ]
     : [];
-  const applicationAccessRows = memberIds.length
+  const applicationAccessRows: Array<MemberApplicationAccessRow> = memberIds.length
+    ? [
+        ...(await db
+          .select({
+            applicationId: accessApplications.id,
+            applicationName: accessApplications.name,
+            memberId: memberApplicationAccess.memberId,
+          })
+          .from(memberApplicationAccess)
+          .innerJoin(
+            accessApplications,
+            eq(memberApplicationAccess.applicationId, accessApplications.id),
+          )
+          .where(
+            and(
+              inArray(memberApplicationAccess.memberId, memberIds),
+              isNull(accessApplications.archivedAt),
+            ),
+          )
+          .orderBy(asc(accessApplications.name))),
+        ...(await db
+          .select({
+            applicationId: accessApplications.id,
+            applicationName: accessApplications.name,
+            memberId: memberGroups.memberId,
+          })
+          .from(memberGroups)
+          .innerJoin(
+            groupApplicationAccess,
+            eq(memberGroups.groupId, groupApplicationAccess.groupId),
+          )
+          .innerJoin(
+            accessApplications,
+            eq(groupApplicationAccess.applicationId, accessApplications.id),
+          )
+          .where(
+            and(
+              inArray(memberGroups.memberId, memberIds),
+              isNull(accessApplications.archivedAt),
+            ),
+          )
+          .orderBy(asc(accessApplications.name))),
+      ]
+    : [];
+  const groupRows: Array<MemberGroupRow> = memberIds.length
     ? await db
         .select({
-          applicationId: accessApplications.id,
-          applicationName: accessApplications.name,
-          memberId: memberApplicationAccess.memberId,
+          groupId: groups.id,
+          groupName: groups.name,
+          memberId: memberGroups.memberId,
         })
-        .from(memberApplicationAccess)
-        .innerJoin(
-          accessApplications,
-          eq(memberApplicationAccess.applicationId, accessApplications.id),
-        )
-        .where(
-          and(
-            inArray(memberApplicationAccess.memberId, memberIds),
-            isNull(accessApplications.archivedAt),
-          ),
-        )
-        .orderBy(asc(accessApplications.name))
+        .from(memberGroups)
+        .innerJoin(groups, eq(memberGroups.groupId, groups.id))
+        .where(inArray(memberGroups.memberId, memberIds))
+        .orderBy(asc(groups.name))
     : [];
   const membershipRows = memberIds.length
     ? await db
@@ -275,6 +354,7 @@ export async function getMembersPage(filters: MembersListFilters) {
         row.id,
         applicationAccessRows,
       ),
+      groups: getAssignedGroupsForMember(row.id, groupRows),
       roles: getActiveRoleBadgesForMember(row.id, roleRows),
     })),
     totalCount: Number(totalCount),
@@ -285,8 +365,14 @@ export function getActiveRoleBadgesForMember(
   memberId: string,
   roleRows: Array<ActiveRoleRow>,
 ) {
+  const seen = new Set<string>();
   return roleRows
     .filter((role) => role.memberId === memberId)
+    .filter((role) => {
+      if (seen.has(role.roleId)) return false;
+      seen.add(role.roleId);
+      return true;
+    })
     .map((role) => ({
       id: role.roleId,
       key: role.roleKey,
@@ -298,11 +384,29 @@ export function getAssignedApplicationsForMember(
   memberId: string,
   applicationAccessRows: Array<MemberApplicationAccessRow>,
 ) {
+  const seen = new Set<string>();
   return applicationAccessRows
     .filter((application) => application.memberId === memberId)
+    .filter((application) => {
+      if (seen.has(application.applicationId)) return false;
+      seen.add(application.applicationId);
+      return true;
+    })
     .map((application) => ({
       id: application.applicationId,
       name: application.applicationName,
+    }));
+}
+
+export function getAssignedGroupsForMember(
+  memberId: string,
+  groupRows: Array<MemberGroupRow>,
+) {
+  return groupRows
+    .filter((group) => group.memberId === memberId)
+    .map((group) => ({
+      id: group.groupId,
+      name: group.groupName,
     }));
 }
 
@@ -348,13 +452,58 @@ export async function roleGrantsAnyPermission(
 }
 
 export async function memberHasActiveRole(memberId: string) {
+  const [directRows, groupRows] = await Promise.all([
+    db
+      .select({ id: memberRoles.roleId })
+      .from(memberRoles)
+      .where(eq(memberRoles.memberId, memberId))
+      .limit(1),
+    db
+      .select({ id: groupRoles.roleId })
+      .from(memberGroups)
+      .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+      .where(eq(memberGroups.memberId, memberId))
+      .limit(1),
+  ]);
+
+  return directRows.length > 0 || groupRows.length > 0;
+}
+
+export async function memberHasGroupDerivedRole(memberId: string) {
   const rows = await db
-    .select({ id: memberRoles.roleId })
-    .from(memberRoles)
-    .where(eq(memberRoles.memberId, memberId))
+    .select({ id: groupRoles.roleId })
+    .from(memberGroups)
+    .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+    .where(eq(memberGroups.memberId, memberId))
     .limit(1);
 
   return rows.length > 0;
+}
+
+export async function getMemberEffectiveRoleIds(
+  memberId: string,
+  options: { excludeGroupId?: string } = {},
+) {
+  const [directRows, groupRows] = await Promise.all([
+    db
+      .select({ roleId: memberRoles.roleId })
+      .from(memberRoles)
+      .where(eq(memberRoles.memberId, memberId)),
+    db
+      .select({ roleId: groupRoles.roleId })
+      .from(memberGroups)
+      .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+      .where(
+        options.excludeGroupId
+          ? and(
+              eq(memberGroups.memberId, memberId),
+              sql`${memberGroups.groupId} <> ${options.excludeGroupId}`,
+            )
+          : eq(memberGroups.memberId, memberId),
+      ),
+  ]);
+
+  return [...new Set([...directRows, ...groupRows].map((row) => row.roleId))];
 }
 
 const fullNameExpr = sql<string>`lower(trim((${members.firstName} || ' ' || ${members.lastName})))`;

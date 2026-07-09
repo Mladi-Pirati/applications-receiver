@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { setMemberApplicationAccessAction } from "@/actions/access-applications";
+import { setMemberGroupAssignmentAction } from "@/actions/groups";
 import {
   appendMembershipRenewalAction,
   deleteAddressAction,
@@ -23,9 +24,11 @@ import {
   deleteMemberAction,
   endMembershipAction,
   reorderContactsAction,
+  retryMemberDiscordSyncAction,
   setMemberRoleAssignmentAction,
   setMemberDisabledAction,
   syncMemberFromKeycloakAction,
+  updateMemberDiscordIdAction,
   updateMemberProfileAction,
   upsertAddressAction,
   upsertContactAction,
@@ -43,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DiscordIdDialog } from "@/components/shared/discord-id-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -87,6 +91,12 @@ type RoleOption = {
 
 type AssignedRole = RoleOption;
 
+type GroupOption = {
+  description: string | null;
+  id: string;
+  name: string;
+};
+
 type ApplicationOption = {
   archivedAt: string | null;
   description: string | null;
@@ -99,6 +109,19 @@ type ApplicationOption = {
 type AssignedApplication = {
   applicationId: string;
   grantedAt: string;
+};
+
+type DesiredDiscordRole = {
+  id: string;
+  name: string;
+};
+
+type DiscordSyncRow = {
+  discordRoleId: string;
+  discordRoleName: string;
+  errorMessage: string | null;
+  status: "assigned" | "failed" | "removed";
+  syncedAt: string;
 };
 
 type ContactRow = {
@@ -504,12 +527,14 @@ function DeleteMemberDialog({ member }: { member: MemberDetail }) {
 function SortableContactRow({
   canUpdate,
   contact,
+  discordUserId,
   index,
   memberId,
   onDeleted,
 }: {
   canUpdate: boolean;
   contact: ContactRow;
+  discordUserId: string | null;
   index: number;
   memberId: string;
   onDeleted: () => void;
@@ -552,6 +577,46 @@ function SortableContactRow({
     });
   }
 
+  if (contact.type === "discord") {
+    return (
+      <div
+        className={cn(
+          "grid gap-2 border-b p-3 md:grid-cols-[auto_120px_minmax(0,1fr)_auto] md:items-center",
+          isDragging && "opacity-60",
+        )}
+        ref={ref}
+      >
+        <Button
+          className="size-8 border"
+          disabled={!canUpdate}
+          ref={handleRef}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <GripVerticalIcon className="size-4" />
+        </Button>
+        <Badge variant="outline">discord</Badge>
+        <div className="grid gap-0.5">
+          <span className="text-sm">{contact.value || "no username"}</span>
+          <span className="text-xs text-muted-foreground">
+            Linked by Discord user ID; the username is kept in sync
+            automatically.
+          </span>
+        </div>
+        <div className="md:justify-self-end">
+          <DiscordIdDialog
+            action={(discordId) =>
+              updateMemberDiscordIdAction(memberId, discordId)
+            }
+            currentDiscordUserId={discordUserId}
+            disabled={!canUpdate}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form
       className={cn(
@@ -576,7 +641,7 @@ function SortableContactRow({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {CONTACT_TYPES.map((type) => (
+          {CONTACT_TYPES.filter((type) => type !== "discord").map((type) => (
             <SelectItem key={type} value={type}>
               {type}
             </SelectItem>
@@ -625,16 +690,21 @@ function SortableContactRow({
 function ContactsTab({
   canUpdate,
   contacts: initialContacts,
+  discordUserId,
   memberId,
 }: {
   canUpdate: boolean;
   contacts: Array<ContactRow>;
+  discordUserId: string | null;
   memberId: string;
 }) {
   const router = useRouter();
   const [contactsState, setContactsState] = useState(initialContacts);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const hasDiscordContact = contactsState.some(
+    (contact) => contact.type === "discord",
+  );
 
   function add(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -680,6 +750,7 @@ function ContactsTab({
             <SortableContactRow
               canUpdate={canUpdate}
               contact={contact}
+              discordUserId={discordUserId}
               index={index}
               key={contact.id}
               memberId={memberId}
@@ -691,6 +762,27 @@ function ContactsTab({
             />
           ))}
         </DragDropProvider>
+        {hasDiscordContact ? null : (
+          <div className="grid gap-2 border-b p-3 md:grid-cols-[120px_minmax(0,1fr)_auto] md:items-center">
+            <Badge variant="outline">discord</Badge>
+            <div className="grid gap-0.5">
+              <span className="text-sm">no username</span>
+              <span className="text-xs text-muted-foreground">
+                Link a Discord account by its user ID; the username is fetched
+                automatically.
+              </span>
+            </div>
+            <div className="md:justify-self-end">
+              <DiscordIdDialog
+                action={(discordId) =>
+                  updateMemberDiscordIdAction(memberId, discordId)
+                }
+                currentDiscordUserId={discordUserId}
+                disabled={!canUpdate}
+              />
+            </div>
+          </div>
+        )}
         <form
           className="grid gap-2 p-4 md:grid-cols-[140px_minmax(0,1fr)_140px_auto_auto] md:items-center"
           onSubmit={add}
@@ -700,11 +792,13 @@ function ContactsTab({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CONTACT_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
-                </SelectItem>
-              ))}
+              {CONTACT_TYPES.filter((type) => type !== "discord").map(
+                (type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
           <Input disabled={!canUpdate} name="value" placeholder="Value" />
@@ -1116,6 +1210,84 @@ function RolesTab({
   );
 }
 
+function GroupsTab({
+  assignedGroupIds,
+  canManageRoles,
+  groups,
+  memberId,
+}: {
+  assignedGroupIds: Array<string>;
+  canManageRoles: boolean;
+  groups: Array<GroupOption>;
+  memberId: string;
+}) {
+  const router = useRouter();
+  const [message, setMessage] = useState<string | null>(null);
+  const [pendingGroupId, setPendingGroupId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function setGroup(groupId: string, assigned: boolean) {
+    setMessage(null);
+    setPendingGroupId(groupId);
+    startTransition(async () => {
+      const result = await setMemberGroupAssignmentAction(memberId, {
+        assigned,
+        groupId,
+      });
+      setMessage(result.message ?? null);
+      setPendingGroupId(null);
+      if (result.ok) router.refresh();
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <CardTitle className="font-bold">Groups</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 p-4">
+          {groups.map((group) => {
+            const assigned = assignedGroupIds.includes(group.id);
+            const pending = pendingGroupId === group.id;
+            return (
+              <div
+                className="grid gap-3 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                key={group.id}
+              >
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{group.name}</span>
+                    {assigned ? <Badge>Assigned</Badge> : null}
+                  </div>
+                  {group.description ? (
+                    <p className="text-xs text-muted-foreground">
+                      {group.description}
+                    </p>
+                  ) : null}
+                </div>
+                <Button
+                  disabled={!canManageRoles || isPending || pending}
+                  onClick={() => setGroup(group.id, !assigned)}
+                  size="xs"
+                  type="button"
+                  variant={assigned ? "outline" : "default"}
+                >
+                  {assigned ? "Remove" : "Grant"}
+                </Button>
+              </div>
+            );
+          })}
+          {groups.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No groups configured.</p>
+          ) : null}
+          <Message value={message} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ApplicationsTab({
   applications,
   assignedApplications,
@@ -1227,15 +1399,150 @@ function ApplicationsTab({
   );
 }
 
+function DiscordTab({
+  canUpdate,
+  desiredRoles,
+  discordSyncs,
+  discordUserId,
+  discordUsername,
+  memberId,
+}: {
+  canUpdate: boolean;
+  desiredRoles: Array<DesiredDiscordRole>;
+  discordSyncs: Array<DiscordSyncRow>;
+  discordUserId: string | null;
+  discordUsername: string | null;
+  memberId: string;
+}) {
+  const router = useRouter();
+  const [message, setMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const syncRowsByRoleId = new Map(
+    discordSyncs.map((sync) => [sync.discordRoleId, sync]),
+  );
+  const rows = [
+    ...discordSyncs,
+    ...desiredRoles
+      .filter((role) => !syncRowsByRoleId.has(role.id))
+      .map((role) => ({
+        discordRoleId: role.id,
+        discordRoleName: role.name,
+        errorMessage: null,
+        status: "pending" as const,
+        syncedAt: null,
+      })),
+  ];
+
+  function retry() {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await retryMemberDiscordSyncAction(memberId);
+      setMessage(result.message ?? null);
+      if (result.ok) router.refresh();
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="font-bold">Discord</CardTitle>
+          <Button
+            disabled={
+              !canUpdate || isPending || (!discordUserId && !discordUsername)
+            }
+            onClick={retry}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <RotateCwIcon />
+            Retry
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="grid gap-0.5">
+              <span className="text-xs text-muted-foreground">
+                Username: {discordUsername || "none on file"}
+              </span>
+              {discordUserId ? (
+                <span className="text-xs text-muted-foreground">
+                  User ID: {discordUserId}
+                </span>
+              ) : null}
+            </div>
+            <DiscordIdDialog
+              action={(discordId) =>
+                updateMemberDiscordIdAction(memberId, discordId)
+              }
+              currentDiscordUserId={discordUserId}
+              disabled={!canUpdate}
+            />
+          </div>
+          {rows.length ? (
+            rows.map((row) => (
+              <div
+                className="grid gap-2 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                key={row.discordRoleId}
+              >
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">
+                      {row.discordRoleName}
+                    </span>
+                    <Badge
+                      variant={
+                        row.status === "failed"
+                          ? "destructive"
+                          : row.status === "assigned"
+                            ? "default"
+                            : "outline"
+                      }
+                    >
+                      {row.status}
+                    </Badge>
+                  </div>
+                  {row.errorMessage ? (
+                    <p className="text-xs text-destructive">{row.errorMessage}</p>
+                  ) : null}
+                </div>
+                {row.syncedAt ? (
+                  <span className="text-xs text-muted-foreground">
+                    {formatSlovenianDateTime(new Date(row.syncedAt))}
+                  </span>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No Discord roles are desired or synced.
+            </p>
+          )}
+          <Message value={message} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function MemberDetailManagement({
   addresses,
   applications,
   assignedApplications,
+  assignedGroupIds,
   assignedRoles,
   canDelete,
   canManageRoles,
   canUpdate,
   contacts,
+  desiredDiscordRoles,
+  discordSyncs,
+  discordUserId,
+  discordUsername,
+  groups,
   highestManagedRank,
   member,
   memberships,
@@ -1244,11 +1551,17 @@ export function MemberDetailManagement({
   addresses: Array<AddressRow>;
   applications: Array<ApplicationOption>;
   assignedApplications: Array<AssignedApplication>;
+  assignedGroupIds: Array<string>;
   assignedRoles: Array<AssignedRole>;
   canDelete: boolean;
   canManageRoles: boolean;
   canUpdate: boolean;
   contacts: Array<ContactRow>;
+  desiredDiscordRoles: Array<DesiredDiscordRole>;
+  discordSyncs: Array<DiscordSyncRow>;
+  discordUserId: string | null;
+  discordUsername: string | null;
+  groups: Array<GroupOption>;
   highestManagedRank: number | null;
   member: MemberDetail;
   memberships: Array<MembershipRow>;
@@ -1290,7 +1603,7 @@ export function MemberDetailManagement({
             </h1>
             {age !== null ? (
               <span className="text-sm font-normal text-muted-foreground">
-                ({age})
+                ({age} years old)
               </span>
             ) : null}
             {member.disabledAt ? (
@@ -1318,6 +1631,7 @@ export function MemberDetailManagement({
       <ContactsTab
         canUpdate={canUpdate}
         contacts={contacts}
+        discordUserId={discordUserId}
         key={contactsKey}
         memberId={member.id}
       />
@@ -1334,12 +1648,28 @@ export function MemberDetailManagement({
         memberships={memberships}
       />
 
+      <DiscordTab
+        canUpdate={canUpdate}
+        desiredRoles={desiredDiscordRoles}
+        discordSyncs={discordSyncs}
+        discordUserId={discordUserId}
+        discordUsername={discordUsername}
+        memberId={member.id}
+      />
+
       <RolesTab
         assignedRoles={assignedRoles}
         canManageRoles={canManageRoles}
         highestManagedRank={highestManagedRank}
         memberId={member.id}
         roles={roles}
+      />
+
+      <GroupsTab
+        assignedGroupIds={assignedGroupIds}
+        canManageRoles={canManageRoles}
+        groups={groups}
+        memberId={member.id}
       />
 
       <ApplicationsTab

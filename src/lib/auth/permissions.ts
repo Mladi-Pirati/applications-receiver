@@ -1,10 +1,12 @@
 import { cache } from "react";
-import { eq, min } from "drizzle-orm";
+import { eq, inArray, min } from "drizzle-orm";
 import { forbidden } from "next/navigation";
 
 import { db } from "@/db";
 import {
   memberRoles,
+  groupRoles,
+  memberGroups,
   members,
   permissions,
   rolePermissions,
@@ -23,16 +25,34 @@ export async function getHighestRoleRank(): Promise<number | null> {
  * Get all permission keys for a given member ID.
  */
 async function getMemberPermissionKeys(memberId: string): Promise<Set<string>> {
+  const roleIds = await getMemberEffectiveRoleIds(memberId);
+  if (!roleIds.length) return new Set();
+
   const results = await db
     .select({
       permissionKey: permissions.key,
     })
-    .from(memberRoles)
-    .innerJoin(rolePermissions, eq(memberRoles.roleId, rolePermissions.roleId))
+    .from(rolePermissions)
     .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-    .where(eq(memberRoles.memberId, memberId));
+    .where(inArray(rolePermissions.roleId, roleIds));
 
   return new Set(results.map((r) => r.permissionKey));
+}
+
+async function getMemberEffectiveRoleIds(memberId: string): Promise<Array<string>> {
+  const [directRoles, derivedRoles] = await Promise.all([
+    db
+      .select({ roleId: memberRoles.roleId })
+      .from(memberRoles)
+      .where(eq(memberRoles.memberId, memberId)),
+    db
+      .select({ roleId: groupRoles.roleId })
+      .from(memberGroups)
+      .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+      .where(eq(memberGroups.memberId, memberId)),
+  ]);
+
+  return [...new Set([...directRoles, ...derivedRoles].map((row) => row.roleId))];
 }
 
 /**
@@ -120,13 +140,7 @@ export async function hasAnyRole(): Promise<boolean> {
     return false;
   }
 
-  const rows = await db
-    .select({ roleId: memberRoles.roleId })
-    .from(memberRoles)
-    .where(eq(memberRoles.memberId, member.id))
-    .limit(1);
-
-  return rows.length > 0;
+  return (await getMemberEffectiveRoleIds(member.id)).length > 0;
 }
 
 export async function getCurrentUserHighestRoleRank(): Promise<number | null> {
@@ -145,11 +159,15 @@ export async function getCurrentUserHighestRoleRank(): Promise<number | null> {
     return null;
   }
 
+  const roleIds = await getMemberEffectiveRoleIds(member.id);
+  if (!roleIds.length) {
+    return null;
+  }
+
   const roleRanks = await db
     .select({ rank: roles.rank })
-    .from(memberRoles)
-    .innerJoin(roles, eq(memberRoles.roleId, roles.id))
-    .where(eq(memberRoles.memberId, member.id));
+    .from(roles)
+    .where(inArray(roles.id, roleIds));
 
   if (!roleRanks.length) {
     return null;
@@ -216,25 +234,31 @@ export async function getCurrentUserPermissions(): Promise<{
   }
 
   const [permResults, roleResults] = await Promise.all([
-    db
-      .select({ key: permissions.key })
-      .from(memberRoles)
-      .innerJoin(rolePermissions, eq(memberRoles.roleId, rolePermissions.roleId))
-      .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-      .where(eq(memberRoles.memberId, member.id)),
-    db
-      .select({
-        id: roles.id,
-        key: roles.key,
-        name: roles.name,
-      })
-      .from(memberRoles)
-      .innerJoin(roles, eq(memberRoles.roleId, roles.id))
-      .where(eq(memberRoles.memberId, member.id)),
+    (async () => {
+      const roleIds = await getMemberEffectiveRoleIds(member.id);
+      if (!roleIds.length) return [];
+      return db
+        .select({ key: permissions.key })
+        .from(rolePermissions)
+        .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+        .where(inArray(rolePermissions.roleId, roleIds));
+    })(),
+    (async () => {
+      const roleIds = await getMemberEffectiveRoleIds(member.id);
+      if (!roleIds.length) return [];
+      return db
+        .select({
+          id: roles.id,
+          key: roles.key,
+          name: roles.name,
+        })
+        .from(roles)
+        .where(inArray(roles.id, roleIds));
+    })(),
   ]);
 
   return {
     permissions: [...new Set(permResults.map((p) => p.key))],
-    roles: roleResults,
+    roles: [...new Map(roleResults.map((role) => [role.id, role])).values()],
   };
 }

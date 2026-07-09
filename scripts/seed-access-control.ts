@@ -44,6 +44,12 @@ async function seed() {
   const permDefs = [
     {
       moduleId: mAccessControl.id,
+      key: "access-control.manage_groups",
+      action: "manage_groups",
+      description: "Group management",
+    },
+    {
+      moduleId: mAccessControl.id,
       key: "access-control.manage_modules",
       action: "manage_modules",
       description: "Module management",
@@ -71,6 +77,12 @@ async function seed() {
       key: "members.delete",
       action: "delete",
       description: "Delete members",
+    },
+    {
+      moduleId: mMembers.id,
+      key: "members.manage_onboarding",
+      action: "manage_onboarding",
+      description: "Manage onboarding defaults",
     },
     {
       moduleId: mMembers.id,

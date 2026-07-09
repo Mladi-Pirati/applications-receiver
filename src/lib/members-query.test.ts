@@ -12,6 +12,7 @@ import {
   buildMembersWhere,
   getActiveRoleBadgesForMember,
   getAssignedApplicationsForMember,
+  getAssignedGroupsForMember,
   getPrimaryEmailForMember,
 } from "@/lib/members-query";
 
@@ -98,6 +99,31 @@ describe("member query inline assignments", () => {
       ]),
     ).toEqual([{ id: "app-1", name: "Forum" }]);
   });
+
+  test("returns assigned group badges for a member", () => {
+    expect(
+      getAssignedGroupsForMember("member-1", [
+        {
+          groupId: "group-1",
+          groupName: "Board",
+          memberId: "member-1",
+        },
+        {
+          groupId: "group-2",
+          groupName: "Regional",
+          memberId: "member-1",
+        },
+        {
+          groupId: "group-3",
+          groupName: "Other",
+          memberId: "member-2",
+        },
+      ]),
+    ).toEqual([
+      { id: "group-1", name: "Board" },
+      { id: "group-2", name: "Regional" },
+    ]);
+  });
 });
 
 describe("member query role filtering", () => {
@@ -140,8 +166,9 @@ describe("member query role filtering", () => {
       .toSQL();
 
     expect(query.sql).toContain('"member_roles"."role_id" in ($1, $2)');
+    expect(query.sql).toContain('"group_roles"."role_id" in ($3, $4)');
     expect(query.sql).not.toContain("expires_at");
-    expect(query.params).toEqual(["role-1", "role-2"]);
+    expect(query.params).toEqual(["role-1", "role-2", "role-1", "role-2"]);
   });
 
   test("combines selected roles and no-role filter with OR logic", () => {
@@ -163,9 +190,10 @@ describe("member query role filtering", () => {
 
     expect(query.sql).toContain("not exists");
     expect(query.sql).toContain('"member_roles"."role_id" in ($1)');
+    expect(query.sql).toContain('"group_roles"."role_id" in ($2)');
     expect(query.sql).toContain(" or ");
     expect(query.sql).not.toContain("expires_at");
-    expect(query.params).toEqual(["role-1"]);
+    expect(query.params).toEqual(["role-1", "role-1"]);
   });
 });
 

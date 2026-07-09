@@ -38,12 +38,43 @@ let updateSets: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 let inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 let deletions: Array<unknown> = [];
 let revalidatedPaths: Array<string> = [];
+let discordIdOwner: { id: string } | null = null;
+let botGuildMember: {
+  displayName: string | null;
+  userId: string;
+  username: string;
+} | null = null;
+let getGuildMemberCalls: Array<string> = [];
+let syncedDiscordMemberIds: Array<string> = [];
+
+function createDiscordBotClient() {
+  return {
+    async listGuildRoles() {
+      return [];
+    },
+    async syncRoles() {
+      return { results: [], userId: null, username: null };
+    },
+    async getGuildMember(discordUserId: string) {
+      getGuildMemberCalls.push(discordUserId);
+      return botGuildMember;
+    },
+  };
+}
+
+async function syncMemberDiscordRolesSafely(memberId: string) {
+  syncedDiscordMemberIds.push(memberId);
+  return { results: [], status: "noop" as const };
+}
 
 function createDbExecutor() {
   return {
     query: {
       members: {
-        async findFirst() {
+        async findFirst(options?: { columns?: Record<string, boolean> }) {
+          if (options?.columns?.discordUserId) {
+            return discordIdOwner ?? undefined;
+          }
           return selfMember ?? undefined;
         },
       },
@@ -130,9 +161,11 @@ mock.module("next/cache", () => ({
   },
 }));
 mock.module("@/lib/me-action-dependencies", () => ({
+  createDiscordBotClient,
   createMembersKeycloakAdminClient,
   db,
   getCurrentUser: async () => currentUser,
+  syncMemberDiscordRolesSafely,
 }));
 
 const meActionsPromise = import("./me");
@@ -175,6 +208,10 @@ beforeEach(() => {
   inserts = [];
   deletions = [];
   revalidatedPaths = [];
+  discordIdOwner = null;
+  botGuildMember = null;
+  getGuildMemberCalls = [];
+  syncedDiscordMemberIds = [];
 });
 
 describe("updateMyProfileAction", () => {
@@ -300,7 +337,7 @@ describe("updateMyProfileAction", () => {
 });
 
 describe("upsertMyContactAction", () => {
-  test("stores a discord contact scoped to the own member without Keycloak", async () => {
+  test("rejects discord contacts in favor of the Discord ID flow", async () => {
     const { upsertMyContactAction } = await meActionsPromise;
 
     const result = await upsertMyContactAction({
@@ -310,21 +347,11 @@ describe("upsertMyContactAction", () => {
       value: "ada#0001",
     });
 
-    expect(result.ok).toBe(true);
-    expect(updateProfileCalls).toEqual([]);
-    expect(inserts).toEqual([
-      {
-        table: contacts,
-        values: {
-          isPrimary: false,
-          label: "",
-          memberId: "member-1",
-          sortOrder: 2,
-          type: "discord",
-          value: "ada#0001",
-        },
-      },
-    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.type).toBeTruthy();
+    }
+    expect(inserts).toEqual([]);
   });
 
   test("syncs a changed primary email to Keycloak first", async () => {
@@ -396,5 +423,94 @@ describe("address and contact removal", () => {
         },
       },
     ]);
+  });
+});
+
+describe("updateMyDiscordIdAction", () => {
+  test("links a guild member, caches the username, and re-syncs roles", async () => {
+    const { updateMyDiscordIdAction } = await meActionsPromise;
+    botGuildMember = {
+      displayName: "Ada",
+      userId: "123456789012345678",
+      username: "ada.dc",
+    };
+    primaryEmailRow = null;
+
+    const result = await updateMyDiscordIdAction("123456789012345678");
+
+    expect(result).toMatchObject({ ok: true });
+    expect(getGuildMemberCalls).toEqual(["123456789012345678"]);
+    expect(updateSets).toContainEqual({
+      table: members,
+      values: { discordUserId: "123456789012345678" },
+    });
+    expect(inserts).toContainEqual({
+      table: contacts,
+      values: {
+        memberId: "member-1",
+        sortOrder: 2,
+        type: "discord",
+        value: "ada.dc",
+      },
+    });
+    expect(syncedDiscordMemberIds).toEqual(["member-1"]);
+  });
+
+  test("rejects malformed discord ids without calling the bot", async () => {
+    const { updateMyDiscordIdAction } = await meActionsPromise;
+
+    const result = await updateMyDiscordIdAction("ada.dc");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.discordUserId).toBeTruthy();
+    }
+    expect(getGuildMemberCalls).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+
+  test("rejects ids that are not members of the guild", async () => {
+    const { updateMyDiscordIdAction } = await meActionsPromise;
+    botGuildMember = null;
+
+    const result = await updateMyDiscordIdAction("123456789012345678");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.discordUserId).toContain(
+        "not a member of the Discord server",
+      );
+    }
+    expect(updateSets).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+
+  test("rejects ids that are already linked to another member", async () => {
+    const { updateMyDiscordIdAction } = await meActionsPromise;
+    botGuildMember = {
+      displayName: null,
+      userId: "123456789012345678",
+      username: "ada.dc",
+    };
+    discordIdOwner = { id: "member-2" };
+
+    const result = await updateMyDiscordIdAction("123456789012345678");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.discordUserId).toContain("already linked");
+    }
+    expect(updateSets).toEqual([]);
+    expect(syncedDiscordMemberIds).toEqual([]);
+  });
+
+  test("rejects unauthenticated users", async () => {
+    const { updateMyDiscordIdAction } = await meActionsPromise;
+    currentUser = null;
+
+    const result = await updateMyDiscordIdAction("123456789012345678");
+
+    expect(result.ok).toBe(false);
+    expect(getGuildMemberCalls).toEqual([]);
   });
 });

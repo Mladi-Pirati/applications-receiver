@@ -12,6 +12,7 @@ export default async function MeProfilePage() {
     where: eq(members.keycloakId, user.keycloakUserId),
     columns: {
       dateOfBirth: true,
+      discordUserId: true,
       firstName: true,
       fullLegalName: true,
       id: true,

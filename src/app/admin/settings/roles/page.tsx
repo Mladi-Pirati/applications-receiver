@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 
 import { ApplicationsManagement } from "@/components/admin/roles/applications-management";
+import { GroupsManagement } from "@/components/admin/roles/groups-management";
 import { ModulesManagement } from "@/components/admin/roles/modules-management";
 import { PermissionsManagement } from "@/components/admin/roles/permissions-management";
 import { RolesManagement } from "@/components/admin/roles/roles-management";
@@ -8,7 +9,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
 import {
   accessApplications,
+  groupApplicationAccess,
+  groupDiscordRoles,
+  groupRoles,
+  groups,
   memberApplicationAccess,
+  memberGroups,
   modules,
   permissions,
   rolePermissions,
@@ -16,12 +22,25 @@ import {
 } from "@/db/schema";
 import {
   getCurrentUserHighestRoleRank,
-  requirePermission,
+  getCurrentUserPermissions,
+  requireAnyPermission,
 } from "@/lib/auth/permissions";
+import { listCachedDiscordGuildRoles } from "@/lib/discord/guild-roles";
 
 export default async function AdminRolesPage() {
-  await requirePermission("access-control.manage_roles");
-  const highestManagedRank = await getCurrentUserHighestRoleRank();
+  await requireAnyPermission(
+    "access-control.manage_roles",
+    "access-control.manage_groups",
+  );
+  const [{ permissions: currentPermissions }, highestManagedRank] =
+    await Promise.all([
+      getCurrentUserPermissions(),
+      getCurrentUserHighestRoleRank(),
+    ]);
+  const canManageRoles = currentPermissions.includes("access-control.manage_roles");
+  const canManageGroups = currentPermissions.includes(
+    "access-control.manage_groups",
+  );
 
   const modulesRows = await db
     .select({
@@ -82,6 +101,52 @@ export default async function AdminRolesPage() {
       permissionId: rolePermissions.permissionId,
     })
     .from(rolePermissions);
+  const groupRows = canManageGroups
+    ? await db
+        .select({
+          description: groups.description,
+          id: groups.id,
+          name: groups.name,
+        })
+        .from(groups)
+        .orderBy(asc(groups.name))
+    : [];
+  const groupRoleRows = canManageGroups
+    ? await db
+        .select({
+          groupId: groupRoles.groupId,
+          roleId: groupRoles.roleId,
+        })
+        .from(groupRoles)
+    : [];
+  const groupApplicationRows = canManageGroups
+    ? await db
+        .select({
+          applicationId: groupApplicationAccess.applicationId,
+          groupId: groupApplicationAccess.groupId,
+        })
+        .from(groupApplicationAccess)
+    : [];
+  const groupDiscordRoleRows = canManageGroups
+    ? await db
+        .select({
+          groupId: groupDiscordRoles.groupId,
+          id: groupDiscordRoles.discordRoleId,
+          name: groupDiscordRoles.discordRoleName,
+        })
+        .from(groupDiscordRoles)
+    : [];
+  const memberGroupRows = canManageGroups
+    ? await db.select({ groupId: memberGroups.groupId }).from(memberGroups)
+    : [];
+  const discordRoleOptions = canManageGroups
+    ? await listCachedDiscordGuildRoles()
+        .then((roles) => ({ message: null, roles }))
+        .catch(() => ({
+          message: "Unable to load Discord roles right now.",
+          roles: [],
+        }))
+    : { message: null, roles: [] };
 
   const rolesWithPermissions = rolesRows.map((role) => ({
     ...role,
@@ -111,38 +176,83 @@ export default async function AdminRolesPage() {
           Manage modules, permissions, and roles for the application.
         </p>
       </div>
-      <Tabs defaultValue="modules">
+      <Tabs defaultValue={canManageRoles ? "modules" : "groups"}>
         <TabsList>
-          <TabsTrigger value="modules">Modules</TabsTrigger>
-          <TabsTrigger value="permissions">Permissions</TabsTrigger>
-          <TabsTrigger value="roles">Roles</TabsTrigger>
-          <TabsTrigger value="applications">Applications</TabsTrigger>
+          {canManageRoles ? <TabsTrigger value="modules">Modules</TabsTrigger> : null}
+          {canManageRoles ? (
+            <TabsTrigger value="permissions">Permissions</TabsTrigger>
+          ) : null}
+          {canManageRoles ? <TabsTrigger value="roles">Roles</TabsTrigger> : null}
+          {canManageRoles ? (
+            <TabsTrigger value="applications">Applications</TabsTrigger>
+          ) : null}
+          {canManageGroups ? <TabsTrigger value="groups">Groups</TabsTrigger> : null}
         </TabsList>
-        <TabsContent className="mt-4" value="modules">
-          <ModulesManagement rows={modulesRows} />
-        </TabsContent>
-        <TabsContent className="mt-4" value="permissions">
-          <PermissionsManagement
-            modules={modulesRows.map((m) => ({ id: m.id, name: m.name }))}
-            rows={permissionsWithModules}
-          />
-        </TabsContent>
-        <TabsContent className="mt-4" value="roles">
-          <RolesManagement
-            highestManagedRank={highestManagedRank}
-            permissions={permissionOptions}
-            rows={rolesWithPermissions}
-          />
-        </TabsContent>
-        <TabsContent className="mt-4" value="applications">
-          <ApplicationsManagement
-            rows={applicationRows.map((row) => ({
-              ...row,
-              archivedAt: row.archivedAt?.toISOString() ?? null,
-              assignedMemberCount: assignedCountsByApplication.get(row.id) ?? 0,
-            }))}
-          />
-        </TabsContent>
+        {canManageRoles ? (
+          <TabsContent className="mt-4" value="modules">
+            <ModulesManagement rows={modulesRows} />
+          </TabsContent>
+        ) : null}
+        {canManageRoles ? (
+          <TabsContent className="mt-4" value="permissions">
+            <PermissionsManagement
+              modules={modulesRows.map((m) => ({ id: m.id, name: m.name }))}
+              rows={permissionsWithModules}
+            />
+          </TabsContent>
+        ) : null}
+        {canManageRoles ? (
+          <TabsContent className="mt-4" value="roles">
+            <RolesManagement
+              highestManagedRank={highestManagedRank}
+              permissions={permissionOptions}
+              rows={rolesWithPermissions}
+            />
+          </TabsContent>
+        ) : null}
+        {canManageRoles ? (
+          <TabsContent className="mt-4" value="applications">
+            <ApplicationsManagement
+              rows={applicationRows.map((row) => ({
+                ...row,
+                archivedAt: row.archivedAt?.toISOString() ?? null,
+                assignedMemberCount:
+                  assignedCountsByApplication.get(row.id) ?? 0,
+              }))}
+            />
+          </TabsContent>
+        ) : null}
+        {canManageGroups ? (
+          <TabsContent className="mt-4" value="groups">
+            <GroupsManagement
+              applicationOptions={applicationRows
+                .filter((row) => !row.archivedAt)
+                .map((row) => ({ id: row.id, name: row.name }))}
+              discordRoleLoadMessage={discordRoleOptions.message}
+              discordRoleOptions={discordRoleOptions.roles}
+              groups={groupRows.map((group) => ({
+                ...group,
+                assignedApplicationIds: groupApplicationRows
+                  .filter((row) => row.groupId === group.id)
+                  .map((row) => row.applicationId),
+                assignedDiscordRoles: groupDiscordRoleRows
+                  .filter((row) => row.groupId === group.id)
+                  .map(({ groupId: _groupId, ...row }) => row),
+                assignedRoleIds: groupRoleRows
+                  .filter((row) => row.groupId === group.id)
+                  .map((row) => row.roleId),
+                memberCount: memberGroupRows.filter(
+                  (row) => row.groupId === group.id,
+                ).length,
+              }))}
+              roleOptions={rolesRows.map((role) => ({
+                id: role.id,
+                name: role.name,
+                rank: role.rank,
+              }))}
+            />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );

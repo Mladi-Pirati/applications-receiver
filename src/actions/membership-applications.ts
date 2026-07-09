@@ -10,10 +10,11 @@ import {
   mladiPiratiMembershipApplications,
 } from "@/db/schema";
 import {
+  applyOnboardingDefaultsSafely,
   db,
   hasPermission,
   provisionMembershipApplicationMember,
-  sendDiscordApprovalEvent,
+  syncMemberDiscordRolesSafely,
 } from "@/lib/membership-application-action-dependencies";
 import {
   buildBulkMembershipApplicationActionMessage,
@@ -500,7 +501,13 @@ async function createMemberForApprovedApplication(applicationId: string) {
   let memberCreationStatus: MemberCreationStatus = "success";
 
   try {
-    await provisionMembershipApplicationMember(application);
+    const provisioningResult =
+      await provisionMembershipApplicationMember(application);
+    await applyOnboardingDefaultsSafely({
+      keycloakId: provisioningResult.keycloakId,
+      memberId: provisioningResult.memberId,
+    });
+    await syncMemberDiscordRolesSafely(provisioningResult.memberId);
     await setApplicationMemberCreationStatus(applicationId, "success");
   } catch (error) {
     console.error("[membership-application-member-creation]", {
@@ -514,33 +521,7 @@ async function createMemberForApprovedApplication(applicationId: string) {
     memberCreationStatus = "fail";
   }
 
-  await sendDiscordApprovalEventSafely({
-    applicationId: application.id,
-    discordUsername: application.discordUsername,
-  });
-
   return memberCreationStatus;
-}
-
-async function sendDiscordApprovalEventSafely(application: {
-  applicationId: string;
-  discordUsername: string | null;
-}) {
-  try {
-    await sendDiscordApprovalEvent({
-      applicationId: application.applicationId,
-      approvedAt: new Date(),
-      discordUsername: application.discordUsername,
-    });
-  } catch (error) {
-    console.error("[discord-approval-event]", {
-      applicationId: application.applicationId,
-      error:
-        error instanceof Error
-          ? { message: error.message, name: error.name }
-          : String(error),
-    });
-  }
 }
 
 async function getApplicationForMemberCreation(applicationId: string) {
