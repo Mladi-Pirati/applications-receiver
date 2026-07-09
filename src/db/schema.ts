@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -180,6 +180,25 @@ export const contacts = pgTable(
     ),
   ],
 );
+
+export const membersRelations = relations(members, ({ many }) => ({
+  addresses: many(addresses),
+  contacts: many(contacts),
+}));
+
+export const addressesRelations = relations(addresses, ({ one }) => ({
+  member: one(members, {
+    fields: [addresses.memberId],
+    references: [members.id],
+  }),
+}));
+
+export const contactsRelations = relations(contacts, ({ one }) => ({
+  member: one(members, {
+    fields: [contacts.memberId],
+    references: [members.id],
+  }),
+}));
 
 export const memberships = pgTable(
   "memberships",

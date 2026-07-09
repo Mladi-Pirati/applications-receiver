@@ -100,6 +100,35 @@ export async function hasAnyPermission(...permissionKeys: Array<string>): Promis
   return permissionKeys.some((k) => keys.has(k));
 }
 
+/**
+ * Check if the current user holds at least one role.
+ * Roles are the unit of admin-area access, independent of their permissions.
+ */
+export async function hasAnyRole(): Promise<boolean> {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return false;
+  }
+
+  const member = await db.query.members.findFirst({
+    where: eq(members.keycloakId, user.keycloakUserId),
+    columns: { id: true },
+  });
+
+  if (!member) {
+    return false;
+  }
+
+  const rows = await db
+    .select({ roleId: memberRoles.roleId })
+    .from(memberRoles)
+    .where(eq(memberRoles.memberId, member.id))
+    .limit(1);
+
+  return rows.length > 0;
+}
+
 export async function getCurrentUserHighestRoleRank(): Promise<number | null> {
   const user = await getCurrentUser();
 

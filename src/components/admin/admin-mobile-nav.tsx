@@ -13,7 +13,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { ListIcon, LogOutIcon, SettingsIcon } from "lucide-react";
+import { ListIcon, LogOutIcon, SettingsIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 
 type AdminMobileNavProps = {
@@ -52,8 +52,17 @@ export function AdminMobileNav({
           />
           <Separator />
           <Link
+            href="/me/profile"
+            className={buttonVariants({ variant: "outline" })}
+            onClick={() => setOpen(false)}
+          >
+            <UserIcon />
+            My profile
+          </Link>
+          <Link
             href="/admin/settings"
             className={buttonVariants({ variant: "outline" })}
+            onClick={() => setOpen(false)}
           >
             <SettingsIcon />
             Settings

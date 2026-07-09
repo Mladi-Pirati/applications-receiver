@@ -1,5 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { LogOutIcon, UserIcon } from "lucide-react";
 
 import { logoutAction } from "@/actions/auth";
 import { AdminMobileNav } from "@/components/admin/admin-mobile-nav";
@@ -8,7 +10,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { requireUser } from "@/lib/auth/session";
 import { getCurrentUserPermissions } from "@/lib/auth/permissions";
-import { LogOutIcon, SettingsIcon } from "lucide-react";
 
 export default async function AdminLayout({
   children,
@@ -16,7 +17,11 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }>) {
   const user = await requireUser();
-  const { permissions } = await getCurrentUserPermissions();
+  const { permissions, roles } = await getCurrentUserPermissions();
+
+  if (roles.length === 0) {
+    redirect("/me");
+  }
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -49,8 +54,11 @@ export default async function AdminLayout({
               <p className="text-xs text-muted-foreground">@{user.username}</p>
             </div>
             <div className="flex flex-row items-center gap-1">
-              <Link href="" className={buttonVariants({ variant: "outline" })}>
-                <SettingsIcon />
+              <Link
+                href="/me/profile"
+                className={buttonVariants({ variant: "outline" })}
+              >
+                <UserIcon />
               </Link>
               <form action={logoutAction}>
                 <Button size="lg" type="submit" variant="destructive">

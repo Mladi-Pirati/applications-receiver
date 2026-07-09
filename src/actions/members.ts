@@ -25,6 +25,7 @@ import {
   sendMembershipWelcomeEmail,
   syncMemberApplicationRoles,
 } from "@/lib/members-action-dependencies";
+import { ensurePrimaryEmail, type DbExecutor } from "@/lib/member-contacts";
 import {
   addressInputSchema,
   contactInputSchema,
@@ -83,13 +84,6 @@ type MembersSyncLogDetails = Record<
   string,
   boolean | number | string | null | undefined
 >;
-
-type DbExecutor = {
-  insert: typeof db.insert;
-  query: typeof db.query;
-  select: typeof db.select;
-  update: typeof db.update;
-};
 
 function getErrorLogDetails(error: unknown): MembersSyncLogDetails {
   if (typeof error !== "object" || error === null) {
@@ -326,43 +320,6 @@ async function syncKeycloakClientAccess(values: {
   }
 
   await keycloak.ensureDefaultClientRole(values.keycloakId);
-}
-
-async function ensurePrimaryEmail(
-  memberId: string,
-  email: string,
-  tx: DbExecutor = db,
-) {
-  const existingEmail = await tx.query.contacts.findFirst({
-    columns: { id: true },
-    where: and(eq(contacts.memberId, memberId), eq(contacts.type, "email")),
-  });
-
-  await tx
-    .update(contacts)
-    .set({ isPrimary: false })
-    .where(and(eq(contacts.memberId, memberId), eq(contacts.type, "email")));
-
-  if (existingEmail) {
-    await tx
-      .update(contacts)
-      .set({ isPrimary: true, value: email })
-      .where(eq(contacts.id, existingEmail.id));
-    return;
-  }
-
-  const [sortRow] = await tx
-    .select({ value: max(contacts.sortOrder) })
-    .from(contacts)
-    .where(eq(contacts.memberId, memberId));
-
-  await tx.insert(contacts).values({
-    isPrimary: true,
-    memberId,
-    sortOrder: Number(sortRow?.value ?? -1) + 1,
-    type: "email",
-    value: email,
-  });
 }
 
 async function syncPrimaryEmailFromKeycloak(
