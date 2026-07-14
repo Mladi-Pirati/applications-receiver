@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { addresses, contacts, members } from "@/db/schema";
+import { addresses, contacts, discordLinkTokens, members } from "@/db/schema";
 
 type SelfMember = {
   disabledAt: Date | null;
@@ -38,43 +38,18 @@ let updateSets: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 let inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 let deletions: Array<unknown> = [];
 let revalidatedPaths: Array<string> = [];
-let discordIdOwner: { id: string } | null = null;
-let botGuildMember: {
-  displayName: string | null;
-  userId: string;
-  username: string;
-} | null = null;
-let getGuildMemberCalls: Array<string> = [];
-let syncedDiscordMemberIds: Array<string> = [];
+let removedRolesMemberIds: Array<string> = [];
 
-function createDiscordBotClient() {
-  return {
-    async listGuildRoles() {
-      return [];
-    },
-    async syncRoles() {
-      return { results: [], userId: null, username: null };
-    },
-    async getGuildMember(discordUserId: string) {
-      getGuildMemberCalls.push(discordUserId);
-      return botGuildMember;
-    },
-  };
-}
-
-async function syncMemberDiscordRolesSafely(memberId: string) {
-  syncedDiscordMemberIds.push(memberId);
-  return { results: [], status: "noop" as const };
+async function removeAllMemberDiscordRolesSafely(memberId: string) {
+  sequence.push("discord:remove-roles");
+  removedRolesMemberIds.push(memberId);
 }
 
 function createDbExecutor() {
   return {
     query: {
       members: {
-        async findFirst(options?: { columns?: Record<string, boolean> }) {
-          if (options?.columns?.discordUserId) {
-            return discordIdOwner ?? undefined;
-          }
+        async findFirst() {
           return selfMember ?? undefined;
         },
       },
@@ -161,11 +136,10 @@ mock.module("next/cache", () => ({
   },
 }));
 mock.module("@/lib/me-action-dependencies", () => ({
-  createDiscordBotClient,
   createMembersKeycloakAdminClient,
   db,
   getCurrentUser: async () => currentUser,
-  syncMemberDiscordRolesSafely,
+  removeAllMemberDiscordRolesSafely,
 }));
 
 const meActionsPromise = import("./me");
@@ -208,10 +182,7 @@ beforeEach(() => {
   inserts = [];
   deletions = [];
   revalidatedPaths = [];
-  discordIdOwner = null;
-  botGuildMember = null;
-  getGuildMemberCalls = [];
-  syncedDiscordMemberIds = [];
+  removedRolesMemberIds = [];
 });
 
 describe("updateMyProfileAction", () => {
@@ -426,91 +397,95 @@ describe("address and contact removal", () => {
   });
 });
 
-describe("updateMyDiscordIdAction", () => {
-  test("links a guild member, caches the username, and re-syncs roles", async () => {
-    const { updateMyDiscordIdAction } = await meActionsPromise;
-    botGuildMember = {
-      displayName: "Ada",
-      userId: "123456789012345678",
-      username: "ada.dc",
-    };
-    primaryEmailRow = null;
+describe("generateDiscordLinkCodeAction", () => {
+  test("generates an 8-character uppercase token and expires in 10 minutes", async () => {
+    const { generateDiscordLinkCodeAction } = await meActionsPromise;
+    const beforeTime = Date.now();
 
-    const result = await updateMyDiscordIdAction("123456789012345678");
+    const result = await generateDiscordLinkCodeAction();
 
-    expect(result).toMatchObject({ ok: true });
-    expect(getGuildMemberCalls).toEqual(["123456789012345678"]);
-    expect(updateSets).toContainEqual({
-      table: members,
-      values: { discordUserId: "123456789012345678" },
-    });
-    expect(inserts).toContainEqual({
-      table: contacts,
-      values: {
-        memberId: "member-1",
-        sortOrder: 2,
-        type: "discord",
-        value: "ada.dc",
-      },
-    });
-    expect(syncedDiscordMemberIds).toEqual(["member-1"]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.token).toHaveLength(8);
+      expect(/^[A-Z2-7]{8}$/.test(result.token)).toBe(true);
+
+      const expiryTime = new Date(result.expiresAt).getTime();
+      const expectedExpiry = beforeTime + 10 * 60 * 1000;
+      const maxDrift = 2000; // Allow 2 seconds drift
+      expect(Math.abs(expiryTime - expectedExpiry)).toBeLessThan(maxDrift);
+    }
   });
 
-  test("rejects malformed discord ids without calling the bot", async () => {
-    const { updateMyDiscordIdAction } = await meActionsPromise;
+  test("deletes previous unused tokens before inserting a new one", async () => {
+    const { generateDiscordLinkCodeAction } = await meActionsPromise;
 
-    const result = await updateMyDiscordIdAction("ada.dc");
+    const result = await generateDiscordLinkCodeAction();
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.fieldErrors?.discordUserId).toBeTruthy();
+    expect(result.ok).toBe(true);
+    expect(deletions).toContain(discordLinkTokens);
+    const tokenInsert = inserts.find(
+      (entry) => entry.table === discordLinkTokens,
+    );
+    expect(tokenInsert?.values.memberId).toBe("member-1");
+    if (result.ok) {
+      expect(tokenInsert?.values.token).toBe(result.token);
     }
-    expect(getGuildMemberCalls).toEqual([]);
-    expect(syncedDiscordMemberIds).toEqual([]);
-  });
-
-  test("rejects ids that are not members of the guild", async () => {
-    const { updateMyDiscordIdAction } = await meActionsPromise;
-    botGuildMember = null;
-
-    const result = await updateMyDiscordIdAction("123456789012345678");
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.fieldErrors?.discordUserId).toContain(
-        "not a member of the Discord server",
-      );
-    }
-    expect(updateSets).toEqual([]);
-    expect(syncedDiscordMemberIds).toEqual([]);
-  });
-
-  test("rejects ids that are already linked to another member", async () => {
-    const { updateMyDiscordIdAction } = await meActionsPromise;
-    botGuildMember = {
-      displayName: null,
-      userId: "123456789012345678",
-      username: "ada.dc",
-    };
-    discordIdOwner = { id: "member-2" };
-
-    const result = await updateMyDiscordIdAction("123456789012345678");
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.fieldErrors?.discordUserId).toContain("already linked");
-    }
-    expect(updateSets).toEqual([]);
-    expect(syncedDiscordMemberIds).toEqual([]);
   });
 
   test("rejects unauthenticated users", async () => {
-    const { updateMyDiscordIdAction } = await meActionsPromise;
+    const { generateDiscordLinkCodeAction } = await meActionsPromise;
     currentUser = null;
 
-    const result = await updateMyDiscordIdAction("123456789012345678");
+    const result = await generateDiscordLinkCodeAction();
 
     expect(result.ok).toBe(false);
-    expect(getGuildMemberCalls).toEqual([]);
+    expect(inserts).toEqual([]);
+  });
+});
+
+describe("unlinkDiscordAction", () => {
+  test("removes roles, clears discordUserId, and deletes the discord contact", async () => {
+    const { unlinkDiscordAction } = await meActionsPromise;
+
+    const result = await unlinkDiscordAction();
+
+    expect(result.ok).toBe(true);
+    expect(removedRolesMemberIds).toEqual(["member-1"]);
+    expect(updateSets).toContainEqual({
+      table: members,
+      values: { discordUserId: null },
+    });
+    expect(deletions).toContain(contacts);
+  });
+
+  test("removes roles before clearing the database", async () => {
+    const { unlinkDiscordAction } = await meActionsPromise;
+
+    await unlinkDiscordAction();
+
+    // Role removal must run before the db writes: the sync context resolves
+    // the Discord account from the still-set discordUserId.
+    expect(sequence.indexOf("discord:remove-roles")).toBeLessThan(
+      sequence.indexOf("db:transaction"),
+    );
+  });
+
+  test("revalidates profile-related paths after unlinking", async () => {
+    const { unlinkDiscordAction } = await meActionsPromise;
+
+    const result = await unlinkDiscordAction();
+
+    expect(result.ok).toBe(true);
+    expect(revalidatedPaths).toContain("/me/profile");
+  });
+
+  test("rejects unauthenticated users", async () => {
+    const { unlinkDiscordAction } = await meActionsPromise;
+    currentUser = null;
+
+    const result = await unlinkDiscordAction();
+
+    expect(result.ok).toBe(false);
+    expect(updateSets).toEqual([]);
   });
 });

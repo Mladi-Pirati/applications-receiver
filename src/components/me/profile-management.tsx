@@ -8,12 +8,11 @@ import { PencilIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import {
   deleteMyAddressAction,
   deleteMyContactAction,
-  updateMyDiscordIdAction,
   updateMyProfileAction,
   upsertMyAddressAction,
   upsertMyContactAction,
 } from "@/actions/me";
-import { DiscordIdDialog } from "@/components/shared/discord-id-dialog";
+import { DiscordLinkDialog } from "@/components/me/discord-link-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -360,9 +359,7 @@ function ContactsCard({
   discordUserId: string | null;
 }) {
   const router = useRouter();
-  const discordContact = contacts.find(
-    (contact) => contact.type === "discord",
-  );
+  const discordContact = contacts.find((contact) => contact.type === "discord");
   const otherContacts = contacts.filter(
     (contact) => contact.type !== "discord",
   );
@@ -442,17 +439,19 @@ function ContactsCard({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">
-                {discordContact?.value || "no username"}
+                {discordUserId
+                  ? discordContact?.value || "linked"
+                  : "Not linked"}
               </p>
               <p className="text-xs text-muted-foreground">
-                Linked by Discord user ID; the username is kept in sync
-                automatically.
+                Linked with the /link command in Discord; the username is kept
+                in sync automatically.
               </p>
             </div>
             <div className="flex gap-2 sm:justify-end">
-              <DiscordIdDialog
-                action={updateMyDiscordIdAction}
-                currentDiscordUserId={discordUserId}
+              <DiscordLinkDialog
+                discordUserId={discordUserId}
+                discordUsername={discordContact?.value ?? null}
               />
             </div>
           </div>

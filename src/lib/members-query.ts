@@ -58,7 +58,9 @@ type MemberGroupRow = {
   memberId: string;
 };
 
-export function buildMembersWhere(filters: MembersListFilters | MembersCursorFilters) {
+export function buildMembersWhere(
+  filters: MembersListFilters | MembersCursorFilters,
+) {
   const whereClauses = [];
 
   if (filters.status === "active") {
@@ -106,7 +108,10 @@ export function buildMembersWhere(filters: MembersListFilters | MembersCursorFil
             db
               .select({ value: sql`1` })
               .from(memberGroups)
-              .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+              .innerJoin(
+                groupRoles,
+                eq(memberGroups.groupId, groupRoles.groupId),
+              )
               .where(eq(memberGroups.memberId, members.id)),
           ),
         ),
@@ -131,7 +136,10 @@ export function buildMembersWhere(filters: MembersListFilters | MembersCursorFil
             db
               .select({ value: sql`1` })
               .from(memberGroups)
-              .innerJoin(groupRoles, eq(memberGroups.groupId, groupRoles.groupId))
+              .innerJoin(
+                groupRoles,
+                eq(memberGroups.groupId, groupRoles.groupId),
+              )
               .where(
                 and(
                   eq(memberGroups.memberId, members.id),
@@ -206,6 +214,7 @@ export async function getMembersPage(filters: MembersListFilters) {
       keycloakId: members.keycloakId,
       lastName: members.lastName,
       residenceRegion: members.residenceRegion,
+      discordUserId: members.discordUserId,
       updatedAt: members.updatedAt,
       username: members.username,
     })
@@ -261,50 +270,51 @@ export async function getMembersPage(filters: MembersListFilters) {
           .orderBy(asc(roles.rank))),
       ]
     : [];
-  const applicationAccessRows: Array<MemberApplicationAccessRow> = memberIds.length
-    ? [
-        ...(await db
-          .select({
-            applicationId: accessApplications.id,
-            applicationName: accessApplications.name,
-            memberId: memberApplicationAccess.memberId,
-          })
-          .from(memberApplicationAccess)
-          .innerJoin(
-            accessApplications,
-            eq(memberApplicationAccess.applicationId, accessApplications.id),
-          )
-          .where(
-            and(
-              inArray(memberApplicationAccess.memberId, memberIds),
-              isNull(accessApplications.archivedAt),
-            ),
-          )
-          .orderBy(asc(accessApplications.name))),
-        ...(await db
-          .select({
-            applicationId: accessApplications.id,
-            applicationName: accessApplications.name,
-            memberId: memberGroups.memberId,
-          })
-          .from(memberGroups)
-          .innerJoin(
-            groupApplicationAccess,
-            eq(memberGroups.groupId, groupApplicationAccess.groupId),
-          )
-          .innerJoin(
-            accessApplications,
-            eq(groupApplicationAccess.applicationId, accessApplications.id),
-          )
-          .where(
-            and(
-              inArray(memberGroups.memberId, memberIds),
-              isNull(accessApplications.archivedAt),
-            ),
-          )
-          .orderBy(asc(accessApplications.name))),
-      ]
-    : [];
+  const applicationAccessRows: Array<MemberApplicationAccessRow> =
+    memberIds.length
+      ? [
+          ...(await db
+            .select({
+              applicationId: accessApplications.id,
+              applicationName: accessApplications.name,
+              memberId: memberApplicationAccess.memberId,
+            })
+            .from(memberApplicationAccess)
+            .innerJoin(
+              accessApplications,
+              eq(memberApplicationAccess.applicationId, accessApplications.id),
+            )
+            .where(
+              and(
+                inArray(memberApplicationAccess.memberId, memberIds),
+                isNull(accessApplications.archivedAt),
+              ),
+            )
+            .orderBy(asc(accessApplications.name))),
+          ...(await db
+            .select({
+              applicationId: accessApplications.id,
+              applicationName: accessApplications.name,
+              memberId: memberGroups.memberId,
+            })
+            .from(memberGroups)
+            .innerJoin(
+              groupApplicationAccess,
+              eq(memberGroups.groupId, groupApplicationAccess.groupId),
+            )
+            .innerJoin(
+              accessApplications,
+              eq(groupApplicationAccess.applicationId, accessApplications.id),
+            )
+            .where(
+              and(
+                inArray(memberGroups.memberId, memberIds),
+                isNull(accessApplications.archivedAt),
+              ),
+            )
+            .orderBy(asc(accessApplications.name))),
+        ]
+      : [];
   const groupRows: Array<MemberGroupRow> = memberIds.length
     ? await db
         .select({
@@ -534,6 +544,7 @@ export async function getMembersCursorPage(filters: MembersCursorFilters) {
   const fetchLimit = filters.limit + 1;
   const baseRowsQuery = db
     .select({
+      discordUserId: members.discordUserId,
       firstName: members.firstName,
       fullName: fullNameExpr,
       id: members.id,

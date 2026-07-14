@@ -59,8 +59,7 @@ export const DISCORD_ROLE_SYNC_STATUSES = [
   "failed",
   "removed",
 ] as const;
-export type DiscordRoleSyncStatus =
-  (typeof DISCORD_ROLE_SYNC_STATUSES)[number];
+export type DiscordRoleSyncStatus = (typeof DISCORD_ROLE_SYNC_STATUSES)[number];
 
 export const addressLabelEnum = pgEnum("address_label", ADDRESS_LABELS);
 export const contactTypeEnum = pgEnum("contact_type", CONTACT_TYPES);
@@ -363,7 +362,9 @@ export const groups = pgTable(
     description: text("description"),
     ...timestamps,
   },
-  (table) => [uniqueIndex("groups_name_lower_unique").on(sql`lower(${table.name})`)],
+  (table) => [
+    uniqueIndex("groups_name_lower_unique").on(sql`lower(${table.name})`),
+  ],
 );
 
 export const groupRoles = pgTable(
@@ -597,6 +598,31 @@ export const memberDiscordRoleSyncs = pgTable(
   ],
 );
 
+export const discordLinkTokens = pgTable(
+  "discord_link_tokens",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    memberId: text("member_id").notNull(),
+    token: text("token").notNull(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true, mode: "date" }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.memberId],
+      foreignColumns: [members.id],
+      name: "discord_link_tokens_member_id_members_id_fk",
+    }).onDelete("cascade"),
+    index("discord_link_tokens_member_id_idx").on(table.memberId),
+    uniqueIndex("discord_link_tokens_token_unique").on(table.token),
+  ],
+);
 export const newsletters = pgTable(
   "newsletters",
   {
@@ -702,7 +728,8 @@ export type NewGroup = typeof groups.$inferInsert;
 export type GroupRole = typeof groupRoles.$inferSelect;
 export type NewGroupRole = typeof groupRoles.$inferInsert;
 export type GroupApplicationAccess = typeof groupApplicationAccess.$inferSelect;
-export type NewGroupApplicationAccess = typeof groupApplicationAccess.$inferInsert;
+export type NewGroupApplicationAccess =
+  typeof groupApplicationAccess.$inferInsert;
 export type GroupDiscordRole = typeof groupDiscordRoles.$inferSelect;
 export type NewGroupDiscordRole = typeof groupDiscordRoles.$inferInsert;
 export type MemberGroup = typeof memberGroups.$inferSelect;
@@ -726,3 +753,5 @@ export type NewMemberDiscordRole = typeof memberDiscordRoles.$inferInsert;
 export type MemberDiscordRoleSync = typeof memberDiscordRoleSyncs.$inferSelect;
 export type NewMemberDiscordRoleSync =
   typeof memberDiscordRoleSyncs.$inferInsert;
+export type DiscordLinkToken = typeof discordLinkTokens.$inferSelect;
+export type NewDiscordLinkToken = typeof discordLinkTokens.$inferInsert;

@@ -1,19 +1,25 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, max } from "drizzle-orm";
+import { randomInt } from "node:crypto";
+
+import { and, eq, isNull, max } from "drizzle-orm";
 import { z } from "zod";
 
-import { addresses, contacts, members, type ContactType } from "@/db/schema";
 import {
-  createDiscordBotClient,
+  addresses,
+  contacts,
+  discordLinkTokens,
+  members,
+  type ContactType,
+} from "@/db/schema";
+import {
   createMembersKeycloakAdminClient,
   db,
   getCurrentUser,
-  syncMemberDiscordRolesSafely,
+  removeAllMemberDiscordRolesSafely,
 } from "@/lib/me-action-dependencies";
-import { ensurePrimaryEmail, upsertDiscordContact } from "@/lib/member-contacts";
-import { discordUserIdSchema } from "@/lib/validation/discord";
+import { ensurePrimaryEmail } from "@/lib/member-contacts";
 import { selfProfileSchema, type SelfProfileInput } from "@/lib/validation/me";
 import {
   addressInputSchema,
@@ -223,7 +229,7 @@ export async function upsertMyContactAction(
       ok: false,
       message: "Please fix the highlighted fields.",
       fieldErrors: {
-        type: "Discord accounts are linked by Discord user ID from the Discord section.",
+        type: "Discord is linked with a code via the /link command in Discord — use the Link button on the discord row.",
       },
     };
   }
@@ -382,74 +388,73 @@ export async function deleteMyAddressAction(
   return { ok: true, message: "Address deleted successfully." };
 }
 
-export async function updateMyDiscordIdAction(
-  discordUserId: string,
-): Promise<ActionResult<ActionSuccess, "discordUserId">> {
+export async function generateDiscordLinkCodeAction(): Promise<
+  ActionResult<{ ok: true; token: string; expiresAt: string }>
+> {
   const self = await requireSelfMember();
   if (!self.ok) return self;
 
-  const parsed = discordUserIdSchema.safeParse(discordUserId);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message: "Please fix the highlighted fields.",
-      fieldErrors: {
-        discordUserId:
-          parsed.error.issues[0]?.message ?? "Enter a valid Discord user ID.",
-      },
-    };
-  }
-
   const { member } = self;
-  const existingOwner = await db.query.members.findFirst({
-    columns: { discordUserId: true, id: true },
-    where: eq(members.discordUserId, parsed.data),
+  const tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+  // Generate 8-char token
+  let token = "";
+  for (let i = 0; i < 8; i++) {
+    token += tokenAlphabet[randomInt(32)];
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+
+  await db.transaction(async (tx) => {
+    // Delete previous unused tokens for this member
+    await tx
+      .delete(discordLinkTokens)
+      .where(
+        and(
+          eq(discordLinkTokens.memberId, member.id),
+          isNull(discordLinkTokens.usedAt),
+        ),
+      );
+
+    // Insert new token
+    await tx.insert(discordLinkTokens).values({
+      memberId: member.id,
+      token,
+      expiresAt,
+    });
   });
-  if (existingOwner && existingOwner.id !== member.id) {
-    return {
-      ok: false,
-      message: "Please fix the highlighted fields.",
-      fieldErrors: {
-        discordUserId:
-          "That Discord account is already linked to another member.",
-      },
-    };
-  }
 
-  let guildMember: Awaited<
-    ReturnType<ReturnType<typeof createDiscordBotClient>["getGuildMember"]>
-  >;
-  try {
-    guildMember = await createDiscordBotClient().getGuildMember(parsed.data);
-  } catch {
-    return {
-      ok: false,
-      message: "The Discord bot could not be reached. Please try again later.",
-    };
-  }
-  if (!guildMember) {
-    return {
-      ok: false,
-      message: "Please fix the highlighted fields.",
-      fieldErrors: {
-        discordUserId: "That account is not a member of the Discord server.",
-      },
-    };
-  }
+  return {
+    ok: true,
+    token,
+    expiresAt: expiresAt.toISOString(),
+  };
+}
 
-  const resolvedUsername = guildMember.username;
+export async function unlinkDiscordAction(): Promise<ActionResult> {
+  const self = await requireSelfMember();
+  if (!self.ok) return self;
+
+  // Remove synced roles while discordUserId is still set; the sync context
+  // needs it to resolve the Discord account.
+  await removeAllMemberDiscordRolesSafely(self.member.id);
+
   await db.transaction(async (tx) => {
     await tx
       .update(members)
-      .set({ discordUserId: parsed.data })
-      .where(eq(members.id, member.id));
-    await upsertDiscordContact(member.id, resolvedUsername, tx);
+      .set({ discordUserId: null })
+      .where(eq(members.id, self.member.id));
+    await tx
+      .delete(contacts)
+      .where(
+        and(
+          eq(contacts.memberId, self.member.id),
+          eq(contacts.type, "discord"),
+        ),
+      );
   });
 
-  await syncMemberDiscordRolesSafely(member.id);
-  revalidateSelf(member.id);
-  return {
-    ok: true,
-    message: `Discord account @${resolvedUsername} linked successfully.`,
-  };
+  revalidateSelf(self.member.id);
+  return { ok: true, message: "Discord account unlinked successfully." };
 }
