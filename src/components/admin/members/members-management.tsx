@@ -86,6 +86,8 @@ import {
 } from "@/lib/members";
 import { residenceRegions } from "@/lib/membership-applications";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/shared/member-avatar";
+import type { ProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 export type MemberRoleBadge = {
   id: string;
@@ -116,6 +118,7 @@ export type MemberListRow = {
   lastName: string;
   groups: Array<MemberGroupBadge>;
   primaryEmail: string | null;
+  profilePicture: ProfilePictureDescriptor | null;
   residenceRegion: string | null;
   roles: Array<MemberRoleBadge>;
   updatedAt: string;
@@ -1123,7 +1126,13 @@ export function MembersManagement({
           `${row.original.firstName} ${row.original.lastName}`.trim();
 
         return (
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <MemberAvatar
+              firstName={row.original.firstName}
+              lastName={row.original.lastName}
+              profilePicture={row.original.profilePicture}
+            />
+            <div className="min-w-0">
             <Link
               className="block truncate font-medium text-foreground hover:underline"
               href={`/admin/members/${row.original.id}`}
@@ -1133,6 +1142,7 @@ export function MembersManagement({
             <p className="truncate text-muted-foreground">
               @{row.original.username}
             </p>
+            </div>
           </div>
         );
       },

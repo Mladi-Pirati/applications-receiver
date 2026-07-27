@@ -10,6 +10,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { requireUser } from "@/lib/auth/session";
 import { getCurrentUserPermissions } from "@/lib/auth/permissions";
+import { db } from "@/db";
+import { members } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { getProfilePictureDescriptor } from "@/lib/profile-pictures";
+import { MemberAvatar } from "@/components/shared/member-avatar";
 
 export default async function AdminLayout({
   children,
@@ -17,7 +22,20 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }>) {
   const user = await requireUser();
-  const { permissions, roles } = await getCurrentUserPermissions();
+  const [{ permissions, roles }, member] = await Promise.all([
+    getCurrentUserPermissions(),
+    db.query.members.findFirst({
+      columns: {
+        firstName: true,
+        id: true,
+        lastName: true,
+        profilePictureBlurhash: true,
+        profilePictureVersion: true,
+      },
+      where: eq(members.id, user.id),
+    }),
+  ]);
+  const profilePicture = member ? getProfilePictureDescriptor(member) : null;
 
   if (roles.length === 0) {
     redirect("/me");
@@ -49,6 +67,11 @@ export default async function AdminLayout({
           </div>
           <Separator />
           <div className="flex shrink-0 items-center justify-between p-4">
+            <MemberAvatar
+              firstName={member?.firstName ?? user.fullName}
+              lastName={member?.lastName ?? ""}
+              profilePicture={profilePicture}
+            />
             <div className="grid gap-1">
               <p className="text-sm font-medium">{user.fullName}</p>
               <p className="text-xs text-muted-foreground">@{user.username}</p>
@@ -89,6 +112,9 @@ export default async function AdminLayout({
               </div>
               <AdminMobileNav
                 fullName={user.fullName}
+                firstName={member?.firstName ?? user.fullName}
+                lastName={member?.lastName ?? ""}
+                profilePicture={profilePicture}
                 permissions={permissions}
                 username={user.username}
               />

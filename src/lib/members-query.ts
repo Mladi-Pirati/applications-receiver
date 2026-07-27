@@ -38,6 +38,7 @@ import {
   encodeCursor,
   type MemberListSort,
 } from "@/lib/members";
+import { getProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 type ActiveRoleRow = {
   memberId: string;
@@ -217,6 +218,8 @@ export async function getMembersPage(filters: MembersListFilters) {
       discordUserId: members.discordUserId,
       updatedAt: members.updatedAt,
       username: members.username,
+      profilePictureBlurhash: members.profilePictureBlurhash,
+      profilePictureVersion: members.profilePictureVersion,
     })
     .from(members);
 
@@ -342,8 +345,13 @@ export async function getMembersPage(filters: MembersListFilters) {
 
   return {
     pageCount: Math.max(1, Math.ceil(Number(totalCount) / filters.pageSize)),
-    rows: rows.map((row) => ({
+    rows: rows.map(({ profilePictureBlurhash, profilePictureVersion, ...row }) => ({
       ...row,
+      profilePicture: getProfilePictureDescriptor({
+        ...row,
+        profilePictureBlurhash,
+        profilePictureVersion,
+      }),
       primaryEmail: getPrimaryEmailForMember(row.id, contactRows),
       currentMembership: (() => {
         const currentMembership = membershipRows.find(
@@ -550,6 +558,8 @@ export async function getMembersCursorPage(filters: MembersCursorFilters) {
       id: members.id,
       lastName: members.lastName,
       username: members.username,
+      profilePictureBlurhash: members.profilePictureBlurhash,
+      profilePictureVersion: members.profilePictureVersion,
     })
     .from(members);
 
@@ -572,6 +582,20 @@ export async function getMembersCursorPage(filters: MembersCursorFilters) {
 
   return {
     nextCursor,
-    rows: rows.map(({ fullName: _fullName, ...row }) => row),
+    rows: rows.map(
+      ({
+        fullName: _fullName,
+        profilePictureBlurhash,
+        profilePictureVersion,
+        ...row
+      }) => ({
+        ...row,
+        profilePicture: getProfilePictureDescriptor({
+          ...row,
+          profilePictureBlurhash,
+          profilePictureVersion,
+        }),
+      }),
+    ),
   };
 }

@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+const actualProfilePictures = await import("@/lib/profile-pictures");
+
 let allowed = true;
 let currentMemberId: string | null = "current-member";
 let currentUserHighestRoleRank: number | null = 1;
@@ -115,6 +117,7 @@ let botGuildMember: {
 } | null = null;
 let botGuildMemberError: Error | null = null;
 let getGuildMemberCalls: Array<string> = [];
+let removedProfilePictureMemberIds: Array<string> = [];
 
 function createDiscordBotClient() {
   return {
@@ -238,6 +241,11 @@ async function syncMemberDiscordRolesSafely(memberId: string) {
 
 async function removeAllMemberDiscordRolesSafely(memberId: string) {
   removedDiscordMemberIds.push(memberId);
+}
+
+async function removeMemberProfilePicture(memberId: string) {
+  removedProfilePictureMemberIds.push(memberId);
+  return true;
 }
 
 async function memberHasActiveRole(memberId: string) {
@@ -444,6 +452,10 @@ const db: MockDb = {
 };
 
 mock.module("next/cache", () => ({ revalidatePath }));
+mock.module("@/lib/profile-pictures", () => ({
+  ...actualProfilePictures,
+  removeMemberProfilePicture,
+}));
 mock.module("@/lib/members-action-dependencies", () => ({
   createDiscordBotClient,
   createMembersKeycloakAdminClient,
@@ -485,6 +497,7 @@ beforeEach(() => {
   syncMemberApplicationRolesCalls = [];
   syncedDiscordMemberIds = [];
   removedDiscordMemberIds = [];
+  removedProfilePictureMemberIds = [];
   revalidatedPaths = [];
   keycloakUsersById = {
     "selected-keycloak-user": {
@@ -743,6 +756,29 @@ describe("updateMemberProfileAction", () => {
       fieldErrors: { residenceRegion: expect.any(String) },
     });
     expect(memberUpdateSetCalls).toEqual([]);
+  });
+});
+
+describe("removeMemberProfilePictureAction", () => {
+  test("requires members.update permission", async () => {
+    allowed = false;
+    const { removeMemberProfilePictureAction } = await membersActionsPromise;
+
+    await expect(
+      removeMemberProfilePictureAction("target-member"),
+    ).resolves.toMatchObject({ ok: false });
+    expect(removedProfilePictureMemberIds).toEqual([]);
+  });
+
+  test("removes the picture and revalidates member views", async () => {
+    const { removeMemberProfilePictureAction } = await membersActionsPromise;
+
+    await expect(
+      removeMemberProfilePictureAction("target-member"),
+    ).resolves.toMatchObject({ ok: true });
+    expect(removedProfilePictureMemberIds).toEqual(["target-member"]);
+    expect(revalidatedPaths).toContain("/admin/members");
+    expect(revalidatedPaths).toContain("/admin/members/target-member");
   });
 });
 

@@ -129,6 +129,8 @@ export const members = pgTable(
     placeOfBirth: text("place_of_birth"),
     residenceRegion: text("residence_region"),
     discordUserId: text("discord_user_id"),
+    profilePictureVersion: text("profile_picture_version"),
+    profilePictureBlurhash: text("profile_picture_blurhash"),
     ...timestamps,
   },
   (table) => [

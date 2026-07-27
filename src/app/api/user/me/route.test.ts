@@ -312,6 +312,7 @@ describe("GET /api/user/me", () => {
           endedAt: null,
         },
       ],
+      profilePicture: null,
       roles: [{ key: "superadmin", name: "Superadmin" }],
       applications: [
         { id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" },
@@ -338,6 +339,7 @@ describe("GET /api/user/me", () => {
       username: "ada",
       contacts: [],
       memberships: [],
+      profilePicture: null,
       roles: [],
       applications: [],
     });

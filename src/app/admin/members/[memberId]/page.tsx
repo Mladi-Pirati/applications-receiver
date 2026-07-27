@@ -23,6 +23,7 @@ import {
   getCurrentUserPermissions,
   requirePermission,
 } from "@/lib/auth/permissions";
+import { getProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 export default async function MemberDetailPage({
   params,
@@ -227,6 +228,7 @@ export default async function MemberDetailPage({
         notes: member.notes,
         placeOfBirth: member.placeOfBirth,
         primaryEmail,
+        profilePicture: getProfilePictureDescriptor(member),
         residenceRegion: member.residenceRegion,
         username: member.username,
       }}

@@ -14,6 +14,7 @@ import {
 } from "@/db/schema";
 import { createCorsPreflightResponse, withCors } from "@/lib/api/cors";
 import { verifyKeycloakAccessToken } from "@/lib/auth/keycloak-jwks";
+import { getProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,6 +84,8 @@ export async function GET(request: NextRequest) {
         lastName: true,
         username: true,
         disabledAt: true,
+        profilePictureBlurhash: true,
+        profilePictureVersion: true,
       },
     });
 
@@ -163,6 +166,7 @@ export async function GET(request: NextRequest) {
           firstName: member.firstName,
           lastName: member.lastName,
           username: member.username,
+          profilePicture: getProfilePictureDescriptor(member),
           contacts: memberContacts,
           memberships: memberMemberships,
           roles: memberRoleRows,

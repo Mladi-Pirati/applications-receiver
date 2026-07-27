@@ -30,6 +30,7 @@ import {
   syncMemberFromKeycloakAction,
   updateMemberDiscordIdAction,
   updateMemberProfileAction,
+  removeMemberProfilePictureAction,
   upsertAddressAction,
   upsertContactAction,
   type DeleteMemberMode,
@@ -79,6 +80,8 @@ import {
   type ResidenceRegion,
 } from "@/lib/membership-applications";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/shared/member-avatar";
+import type { ProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 const UNSET_RESIDENCE_REGION = "__unset";
 
@@ -160,6 +163,7 @@ type MemberDetail = {
   notes: string | null;
   placeOfBirth: string | null;
   primaryEmail: string;
+  profilePicture: ProfilePictureDescriptor | null;
   residenceRegion: string | null;
   username: string;
 };
@@ -1596,7 +1600,14 @@ export function MemberDetailManagement({
   return (
     <div className="grid gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="grid gap-1">
+        <div className="flex items-center gap-3">
+          <MemberAvatar
+            className="size-14 text-base"
+            firstName={member.firstName}
+            lastName={member.lastName}
+            profilePicture={member.profilePicture}
+          />
+          <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-semibold">
               {fullName || member.username}
@@ -1615,6 +1626,21 @@ export function MemberDetailManagement({
           <p className="text-xs text-muted-foreground">
             @{member.username} - {member.primaryEmail || "No primary email"}
           </p>
+          {canUpdate && member.profilePicture ? (
+            <Button
+              className="w-fit"
+              onClick={() => {
+                if (!window.confirm("Remove this member's profile picture?")) return;
+                void removeMemberProfilePictureAction(member.id).then(() => window.location.reload());
+              }}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
+              Remove profile picture
+            </Button>
+          ) : null}
+          </div>
         </div>
         <Button asChild variant="outline">
           <Link href="/admin/members">Back to members</Link>

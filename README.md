@@ -41,6 +41,11 @@ Copy `.env.example` to `.env` and provide:
 - `KEYCLOAK_ISSUER`
 - `KEYCLOAK_ADMIN`
 - `LEGALIZIRAJMO_TURNSTILE_SECRET_KEY`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+- `S3_REGION`
+- `S3_ENDPOINT`
+- `S3_BUCKET`
 
 Optional:
 
@@ -48,6 +53,10 @@ Optional:
 - `LEGALIZIRAJMO_TURNSTILE_EXPECTED_HOSTNAME`
 
 `LEGALIZIRAJMO_TURNSTILE_SECRET_KEY` is used by the newsletter subscribe API and the membership application API to verify Cloudflare Turnstile tokens server-side. `LEGALIZIRAJMO_TURNSTILE_EXPECTED_HOSTNAME` can be set to enforce that successful Turnstile challenges were solved for the expected frontend hostname.
+
+The S3 settings point Helm at a private S3-compatible bucket used for profile
+pictures. The configured credentials require `GetObject`, `PutObject`, and
+`DeleteObject`; browsers never access the bucket directly.
 
 ## Auth Overview
 

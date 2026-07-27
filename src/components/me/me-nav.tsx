@@ -7,16 +7,21 @@ import { HomeIcon, LogOutIcon, ShieldIcon, UserIcon } from "lucide-react";
 import { logoutAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/shared/member-avatar";
+import type { ProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 type MeNavProps = {
   fullName: string;
+  firstName: string;
+  lastName: string;
+  profilePicture: ProfilePictureDescriptor | null;
   showAdminLink: boolean;
 };
 
 const linkClassName =
   "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-xs font-medium transition-colors";
 
-export function MeNav({ fullName, showAdminLink }: MeNavProps) {
+export function MeNav({ firstName, fullName, lastName, profilePicture, showAdminLink }: MeNavProps) {
   const pathname = usePathname();
   const items = [
     {
@@ -68,6 +73,7 @@ export function MeNav({ fullName, showAdminLink }: MeNavProps) {
       <div className="hidden text-right text-xs font-medium text-muted-foreground sm:block">
         {fullName}
       </div>
+      <MemberAvatar firstName={firstName} lastName={lastName} profilePicture={profilePicture} />
       <form action={logoutAction}>
         <Button size="sm" type="submit" variant="destructive">
           <LogOutIcon />

@@ -34,6 +34,7 @@ import {
   type DbExecutor,
 } from "@/lib/member-contacts";
 import { discordUserIdSchema } from "@/lib/validation/discord";
+import { removeMemberProfilePicture } from "@/lib/profile-pictures";
 import {
   addressInputSchema,
   contactInputSchema,
@@ -60,6 +61,24 @@ type ActionFailure<TField extends string = string> = {
 type ActionResult<T = ActionSuccess, TField extends string = string> =
   | T
   | ActionFailure<TField>;
+
+export async function removeMemberProfilePictureAction(
+  memberId: string,
+): Promise<ActionResult> {
+  if (!(await hasPermission("members.update"))) {
+    return { ok: false, message: "You are not allowed to update members." };
+  }
+  const member = await db.query.members.findFirst({
+    columns: { id: true },
+    where: eq(members.id, memberId),
+  });
+  if (!member) return { ok: false, message: "Member not found." };
+
+  await removeMemberProfilePicture(memberId);
+  revalidatePath("/admin/members");
+  revalidatePath(`/admin/members/${memberId}`);
+  return { ok: true, message: "Profile picture removed." };
+}
 
 const CRITICAL_SELF_PERMISSIONS = [
   "members.role_management",
