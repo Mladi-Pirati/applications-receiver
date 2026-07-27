@@ -93,10 +93,7 @@ async function processWithConcurrency<T, TResult>(
   }
 
   await Promise.all(
-    Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    ),
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
   );
 
   return results;
@@ -226,9 +223,8 @@ export async function bulkAssignMemberAccessAction(values: {
     (total, result) => total + result.successfulAssignmentCount,
     0,
   );
-  const failedMemberCount = new Set(
-    failures.map((failure) => failure.memberId),
-  ).size;
+  const failedMemberCount = new Set(failures.map((failure) => failure.memberId))
+    .size;
 
   revalidatePath("/admin/members");
   if (parsed.data.groupIds.length > 0) {

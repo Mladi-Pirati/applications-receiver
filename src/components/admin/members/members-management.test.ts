@@ -50,13 +50,46 @@ describe("members management table implementation", () => {
     expect(source).not.toContain("resendWelcomeEmailAction");
     expect(source).not.toContain("MailIcon");
     expect(source).not.toContain("ResendWelcomeEmailDialog");
-    expect(source).not.toContain("type RowSelectionState");
-    expect(source).not.toContain("enableRowSelection");
-    expect(source).not.toContain("Select all visible members");
-    expect(source).not.toContain("Select member");
-    expect(source).not.toContain("Bulk actions");
     expect(source).not.toContain("BulkResendWelcomeEmailDialog");
     expect(source).not.toContain("bulkResendWelcomeEmailAction");
+  });
+
+  test("supports permission-gated current-page member selection and bulk access", () => {
+    const source = readFileSync(
+      "src/components/admin/members/members-management.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("type RowSelectionState");
+    expect(source).toContain("enableRowSelection: canManageRoles");
+    expect(source).toContain("onRowSelectionChange: setRowSelection");
+    expect(source).toContain('id: "select"');
+    expect(source).toContain("Select all visible members");
+    expect(source).toContain("Select member");
+    expect(source).toContain("table.toggleAllRowsSelected");
+    expect(source).toContain("BulkMemberAccessDialog");
+    expect(source).toContain("disabled={!hasSelection}");
+    expect(source).toContain("setRowSelection({})");
+    expect(source).toContain("failedAssignmentCount");
+    expect(source).toContain("failureReasons");
+  });
+
+  test("renders optional searchable role, group, and application assignment fields", () => {
+    const source = readFileSync(
+      "src/components/admin/members/bulk-member-access-dialog.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("bulkAssignMemberAccessAction");
+    expect(source).toContain("function AssignmentCombobox");
+    expect(source).toContain("ComboboxChipsInput");
+    expect(source).toContain('label="Roles"');
+    expect(source).toContain('label="Groups"');
+    expect(source).toContain('label="Applications"');
+    expect(source).toContain("hasAssignments");
+    expect(source).toContain("members.map((member) => member.id)");
+    expect(source).toContain('isPending ? "Assigning..." : "Assign access"');
+    expect(source).toContain("router.refresh()");
   });
 
   test("renders popover controls for inline group, role, and application assignment", () => {
@@ -76,7 +109,9 @@ describe("members management table implementation", () => {
 
     const columnsSource = source.slice(
       source.indexOf("const columns: ColumnDef<MemberListRow>[]"),
-      source.indexOf("// eslint-disable-next-line react-hooks/incompatible-library"),
+      source.indexOf(
+        "// eslint-disable-next-line react-hooks/incompatible-library",
+      ),
     );
     expect(columnsSource.indexOf('id: "groups"')).toBeLessThan(
       columnsSource.indexOf('id: "roles"'),
@@ -155,7 +190,9 @@ describe("members management table implementation", () => {
 
     const columnsSource = source.slice(
       source.indexOf("const columns: ColumnDef<MemberListRow>[]"),
-      source.indexOf("// eslint-disable-next-line react-hooks/incompatible-library"),
+      source.indexOf(
+        "// eslint-disable-next-line react-hooks/incompatible-library",
+      ),
     );
     expect(columnsSource).toContain("<RegionFilterDialog");
   });

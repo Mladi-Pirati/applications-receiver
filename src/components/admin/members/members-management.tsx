@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -9,6 +9,7 @@ import {
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
+  type RowSelectionState,
 } from "@tanstack/react-table";
 import {
   ArrowDownAZIcon,
@@ -27,6 +28,10 @@ import {
   searchKeycloakUsersAction,
   updateMemberRolesAction,
 } from "@/actions/members";
+import {
+  BulkMemberAccessDialog,
+  type BulkMemberAccessAssignmentCompletion,
+} from "@/components/admin/members/bulk-member-access-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -162,10 +167,21 @@ type AssignmentOption = {
 
 type CreateMemberFieldErrors = Partial<
   Record<
-    "firstName" | "fullLegalName" | "keycloakId" | "lastName" | "primaryEmail" | "username",
+    | "firstName"
+    | "fullLegalName"
+    | "keycloakId"
+    | "lastName"
+    | "primaryEmail"
+    | "username",
     string
   >
 >;
+
+type BulkAssignmentFeedback = {
+  failureReasons: Array<{ count: number; message: string }>;
+  kind: "success" | "warning";
+  message: string;
+};
 
 function formatMembership(value: MemberListRow["currentMembership"]) {
   if (!value) return "No active membership";
@@ -501,7 +517,11 @@ function AddMemberSheet() {
           <Input
             aria-invalid={Boolean(fieldErrors.fullLegalName)}
             onChange={(event) =>
-              setMemberField("fullLegalName", event.target.value, "fullLegalName")
+              setMemberField(
+                "fullLegalName",
+                event.target.value,
+                "fullLegalName",
+              )
             }
             value={memberForm.fullLegalName}
             name="fullLegalName"
@@ -1058,6 +1078,37 @@ export function MembersManagement({
   totalCount: number;
 }) {
   const router = useRouter();
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [bulkFeedback, setBulkFeedback] =
+    useState<BulkAssignmentFeedback | null>(null);
+  const selectionScopeKey = JSON.stringify(filters);
+
+  useEffect(() => {
+    setRowSelection({});
+    setBulkFeedback(null);
+  }, [selectionScopeKey]);
+
+  function handleBulkAssignmentComplete(
+    result: BulkMemberAccessAssignmentCompletion,
+  ) {
+    const failureCounts = new Map<string, number>();
+    for (const failure of result.failures) {
+      failureCounts.set(
+        failure.message,
+        (failureCounts.get(failure.message) ?? 0) + 1,
+      );
+    }
+
+    setBulkFeedback({
+      failureReasons: Array.from(failureCounts, ([message, count]) => ({
+        count,
+        message,
+      })),
+      kind: result.failedAssignmentCount > 0 ? "warning" : "success",
+      message: result.message,
+    });
+    setRowSelection({});
+  }
 
   async function updateInlineGroupAssignment(
     row: MemberListRow,
@@ -1105,6 +1156,46 @@ export function MembersManagement({
   // the test fails with Array<type> here so we're stuck with type[]
   // eslint-disable-next-line @typescript-eslint/array-type
   const columns: ColumnDef<MemberListRow>[] = [
+    ...(canManageRoles
+      ? [
+          {
+            id: "select",
+            header: ({ table }) => (
+              <Checkbox
+                aria-label="Select all visible members"
+                checked={
+                  table.getIsAllRowsSelected()
+                    ? true
+                    : table.getIsSomeRowsSelected()
+                      ? "indeterminate"
+                      : false
+                }
+                onCheckedChange={(value) => {
+                  table.toggleAllRowsSelected(value === true);
+                  setBulkFeedback(null);
+                }}
+              />
+            ),
+            size: 44,
+            cell: ({ row }) => {
+              const displayName =
+                `${row.original.firstName} ${row.original.lastName}`.trim() ||
+                row.original.username;
+
+              return (
+                <Checkbox
+                  aria-label={`Select member ${displayName}`}
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(value) => {
+                    row.toggleSelected(value === true);
+                    setBulkFeedback(null);
+                  }}
+                />
+              );
+            },
+          } satisfies ColumnDef<MemberListRow>,
+        ]
+      : []),
     {
       id: "member",
       header: () => {
@@ -1133,15 +1224,15 @@ export function MembersManagement({
               profilePicture={row.original.profilePicture}
             />
             <div className="min-w-0">
-            <Link
-              className="block truncate font-medium text-foreground hover:underline"
-              href={`/admin/members/${row.original.id}`}
-            >
-              {fullName || row.original.username}
-            </Link>
-            <p className="truncate text-muted-foreground">
-              @{row.original.username}
-            </p>
+              <Link
+                className="block truncate font-medium text-foreground hover:underline"
+                href={`/admin/members/${row.original.id}`}
+              >
+                {fullName || row.original.username}
+              </Link>
+              <p className="truncate text-muted-foreground">
+                @{row.original.username}
+              </p>
             </div>
           </div>
         );
@@ -1330,9 +1421,19 @@ export function MembersManagement({
   const table = useReactTable({
     columns,
     data: rows,
+    enableRowSelection: canManageRoles,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => row.id,
+    onRowSelectionChange: setRowSelection,
+    state: {
+      rowSelection,
+    },
   });
+  const selectedRows = table
+    .getSelectedRowModel()
+    .rows.map((row) => row.original);
+  const selectedCount = selectedRows.length;
+  const hasSelection = selectedCount > 0;
 
   return (
     <Card>
@@ -1348,6 +1449,51 @@ export function MembersManagement({
         </div>
       </CardHeader>
       <CardContent className="px-0">
+        {canManageRoles ? (
+          <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-h-4">
+              {bulkFeedback ? (
+                <div
+                  className={cn(
+                    "grid gap-1 text-xs",
+                    bulkFeedback.kind === "warning"
+                      ? "font-medium text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <p>{bulkFeedback.message}</p>
+                  {bulkFeedback.failureReasons.length > 0 ? (
+                    <ul className="list-disc pl-4">
+                      {bulkFeedback.failureReasons.map((reason) => (
+                        <li key={reason.message}>
+                          {reason.count} failed: {reason.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {selectedCount
+                    ? `${selectedCount} selected`
+                    : "Select members to assign access."}
+                </p>
+              )}
+            </div>
+            <BulkMemberAccessDialog
+              applicationOptions={applicationOptions}
+              disabled={!hasSelection}
+              groupOptions={groupOptions}
+              members={selectedRows}
+              onComplete={handleBulkAssignmentComplete}
+              roleOptions={roleOptions}
+            >
+              <Button disabled={!hasSelection} size="xs" type="button">
+                Assign access
+              </Button>
+            </BulkMemberAccessDialog>
+          </div>
+        ) : null}
         <TableScrollContainer>
           <Table
             className="table-fixed"
@@ -1375,7 +1521,10 @@ export function MembersManagement({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow
+                    data-state={row.getIsSelected() ? "selected" : undefined}
+                    key={row.id}
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         className={
