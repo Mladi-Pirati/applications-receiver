@@ -3,10 +3,10 @@ import { z } from "zod";
 import { ADDRESS_LABELS, CONTACT_TYPES } from "@/db/schema";
 import { residenceRegions } from "@/lib/membership-applications";
 
-const trimmedRequired = (field: string, max = 160) =>
+export const trimmedRequired = (field: string, max = 160) =>
   z.string().trim().min(1, `${field} is required.`).max(max);
 
-const optionalText = (max = 1000) =>
+export const optionalText = (max = 1000) =>
   z.string().trim().max(max).optional().or(z.literal(""));
 
 export const primaryEmailSchema = z

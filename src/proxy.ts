@@ -7,17 +7,20 @@ export const proxy = auth((request) => {
   const pathname = request.nextUrl.pathname;
   const isAuthenticated = isAppSessionUser(request.auth?.user);
 
-  if (pathname.startsWith("/admin") && !isAuthenticated) {
+  if (
+    (pathname.startsWith("/admin") || pathname.startsWith("/me")) &&
+    !isAuthenticated
+  ) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   if (pathname === "/login" && isAuthenticated) {
-    return NextResponse.redirect(new URL("/admin", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return NextResponse.next();
 });
 
 export const config = {
-  matcher: ["/admin/:path*", "/login"],
+  matcher: ["/admin/:path*", "/me/:path*", "/login"],
 };

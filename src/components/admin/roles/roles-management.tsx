@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { DragDropProvider } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { move } from "@dnd-kit/helpers";
@@ -154,10 +154,6 @@ export function RolesManagement({
   const [rolesState, setRolesState] = useState(rows);
   const [message, setMessage] = useState<string | null>(null);
   const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    setRolesState(rows);
-  }, [rows]);
 
   function isRoleOrderAllowed(nextRows: Array<RoleListRow>) {
     const lockedRoleIds = rolesState

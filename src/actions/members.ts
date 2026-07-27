@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, max, or } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -14,6 +14,7 @@ import {
   type ContactType,
 } from "@/db/schema";
 import {
+  createDiscordBotClient,
   createMembersKeycloakAdminClient,
   db,
   getCurrentUser,
@@ -21,10 +22,19 @@ import {
   getHighestRoleRank,
   hasPermission,
   memberHasActiveRole,
+  removeAllMemberDiscordRolesSafely,
   roleGrantsAnyPermission,
   sendMembershipWelcomeEmail,
+  syncMemberDiscordRolesSafely,
   syncMemberApplicationRoles,
 } from "@/lib/members-action-dependencies";
+import {
+  ensurePrimaryEmail,
+  upsertDiscordContact,
+  type DbExecutor,
+} from "@/lib/member-contacts";
+import { discordUserIdSchema } from "@/lib/validation/discord";
+import { removeMemberProfilePicture } from "@/lib/profile-pictures";
 import {
   addressInputSchema,
   contactInputSchema,
@@ -52,6 +62,24 @@ type ActionResult<T = ActionSuccess, TField extends string = string> =
   | T
   | ActionFailure<TField>;
 
+export async function removeMemberProfilePictureAction(
+  memberId: string,
+): Promise<ActionResult> {
+  if (!(await hasPermission("members.update"))) {
+    return { ok: false, message: "You are not allowed to update members." };
+  }
+  const member = await db.query.members.findFirst({
+    columns: { id: true },
+    where: eq(members.id, memberId),
+  });
+  if (!member) return { ok: false, message: "Member not found." };
+
+  await removeMemberProfilePicture(memberId);
+  revalidatePath("/admin/members");
+  revalidatePath(`/admin/members/${memberId}`);
+  return { ok: true, message: "Profile picture removed." };
+}
+
 const CRITICAL_SELF_PERMISSIONS = [
   "members.role_management",
   "access-control.manage_roles",
@@ -76,6 +104,9 @@ const deleteMemberSchema = z.object({
 const resendWelcomeEmailSchema = z.object({
   memberId: z.string().trim().min(1, "Member id is required."),
 });
+const memberIdSchema = z.object({
+  memberId: z.string().trim().min(1, "Member id is required."),
+});
 
 export type DeleteMemberMode = z.infer<typeof deleteMemberSchema>["mode"];
 
@@ -83,13 +114,6 @@ type MembersSyncLogDetails = Record<
   string,
   boolean | number | string | null | undefined
 >;
-
-type DbExecutor = {
-  insert: typeof db.insert;
-  query: typeof db.query;
-  select: typeof db.select;
-  update: typeof db.update;
-};
 
 function getErrorLogDetails(error: unknown): MembersSyncLogDetails {
   if (typeof error !== "object" || error === null) {
@@ -326,43 +350,6 @@ async function syncKeycloakClientAccess(values: {
   }
 
   await keycloak.ensureDefaultClientRole(values.keycloakId);
-}
-
-async function ensurePrimaryEmail(
-  memberId: string,
-  email: string,
-  tx: DbExecutor = db,
-) {
-  const existingEmail = await tx.query.contacts.findFirst({
-    columns: { id: true },
-    where: and(eq(contacts.memberId, memberId), eq(contacts.type, "email")),
-  });
-
-  await tx
-    .update(contacts)
-    .set({ isPrimary: false })
-    .where(and(eq(contacts.memberId, memberId), eq(contacts.type, "email")));
-
-  if (existingEmail) {
-    await tx
-      .update(contacts)
-      .set({ isPrimary: true, value: email })
-      .where(eq(contacts.id, existingEmail.id));
-    return;
-  }
-
-  const [sortRow] = await tx
-    .select({ value: max(contacts.sortOrder) })
-    .from(contacts)
-    .where(eq(contacts.memberId, memberId));
-
-  await tx.insert(contacts).values({
-    isPrimary: true,
-    memberId,
-    sortOrder: Number(sortRow?.value ?? -1) + 1,
-    type: "email",
-    value: email,
-  });
 }
 
 async function syncPrimaryEmailFromKeycloak(
@@ -817,6 +804,7 @@ export async function setMemberDisabledAction(
     .update(members)
     .set({ disabledAt: disabled ? new Date() : null })
     .where(eq(members.id, memberId));
+  await syncMemberDiscordRolesSafely(memberId);
 
   revalidateMembers(memberId);
   return {
@@ -877,6 +865,7 @@ export async function deleteMemberAction(
     };
   }
 
+  await removeAllMemberDiscordRolesSafely(memberId);
   await db.delete(members).where(eq(members.id, memberId));
 
   revalidateMembers(memberId);
@@ -901,6 +890,16 @@ export async function upsertContactAction(
         label: fieldErrors.label?.[0],
         type: fieldErrors.type?.[0],
         value: fieldErrors.value?.[0],
+      },
+    };
+  }
+
+  if (parsed.data.type === "discord") {
+    return {
+      ok: false,
+      message: "Please fix the highlighted fields.",
+      fieldErrors: {
+        type: "Discord accounts are linked by Discord user ID from the Discord section.",
       },
     };
   }
@@ -1133,9 +1132,135 @@ export async function endMembershipAction(
     .update(memberships)
     .set({ endedAt: new Date() })
     .where(eq(memberships.id, membershipId));
+  const activeMemberships = await db
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.memberId, memberId),
+        isNull(memberships.endedAt),
+        or(isNull(memberships.expiresAt), gt(memberships.expiresAt, new Date())),
+      ),
+    )
+    .limit(1);
+  if (!activeMemberships.length) {
+    await syncMemberDiscordRolesSafely(memberId);
+  }
 
   revalidateMembers(memberId);
   return { ok: true, message: "Membership ended." };
+}
+
+export async function updateMemberDiscordIdAction(
+  memberId: string,
+  discordUserId: string,
+): Promise<ActionResult<ActionSuccess, "discordUserId">> {
+  const access = await requireMembersPermission("members.update");
+  if (!access.ok) return access;
+
+  const parsed = discordUserIdSchema.safeParse(discordUserId);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Please fix the highlighted fields.",
+      fieldErrors: {
+        discordUserId:
+          parsed.error.issues[0]?.message ?? "Enter a valid Discord user ID.",
+      },
+    };
+  }
+
+  const member = await getMemberIdentity(memberId);
+  if (!member) return { ok: false, message: "That member could not be found." };
+
+  const existingOwner = await db.query.members.findFirst({
+    columns: { discordUserId: true, id: true },
+    where: eq(members.discordUserId, parsed.data),
+  });
+  if (existingOwner && existingOwner.id !== memberId) {
+    return {
+      ok: false,
+      message: "Please fix the highlighted fields.",
+      fieldErrors: {
+        discordUserId:
+          "That Discord account is already linked to another member.",
+      },
+    };
+  }
+
+  let guildMember: Awaited<
+    ReturnType<ReturnType<typeof createDiscordBotClient>["getGuildMember"]>
+  >;
+  try {
+    guildMember = await createDiscordBotClient().getGuildMember(parsed.data);
+  } catch {
+    return {
+      ok: false,
+      message: "The Discord bot could not be reached. Please try again later.",
+    };
+  }
+  if (!guildMember) {
+    return {
+      ok: false,
+      message: "Please fix the highlighted fields.",
+      fieldErrors: {
+        discordUserId:
+          "That account is not a member of the Discord server.",
+      },
+    };
+  }
+
+  const resolvedUsername = guildMember.username;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(members)
+      .set({ discordUserId: parsed.data })
+      .where(eq(members.id, memberId));
+    await upsertDiscordContact(memberId, resolvedUsername, tx);
+  });
+
+  await syncMemberDiscordRolesSafely(memberId);
+  revalidateMembers(memberId);
+  return {
+    ok: true,
+    message: `Discord account @${resolvedUsername} linked successfully.`,
+  };
+}
+
+export async function retryMemberDiscordSyncAction(
+  memberId: string,
+): Promise<ActionResult> {
+  const access = await requireMembersPermission("members.update");
+  if (!access.ok) return access;
+
+  const parsed = memberIdSchema.safeParse({ memberId });
+  if (!parsed.success) return { ok: false, message: "Member id is required." };
+
+  const member = await getMemberIdentity(parsed.data.memberId);
+  if (!member) return { ok: false, message: "That member could not be found." };
+
+  const summary = await syncMemberDiscordRolesSafely(parsed.data.memberId);
+  const assignedCount = summary.results.filter(
+    (result) => result.ok && result.action === "assign",
+  ).length;
+  const removedCount = summary.results.filter(
+    (result) => result.ok && result.action === "remove",
+  ).length;
+  const failures = summary.results.filter((result) => !result.ok);
+  const failureText = failures.length
+    ? `, ${failures.length} failed: ${[
+        ...new Set(failures.map((result) => result.error ?? "Discord sync failed")),
+      ].join("; ")}`
+    : "";
+
+  revalidateMembers(parsed.data.memberId);
+  return {
+    ok: true,
+    message:
+      summary.status === "noop"
+        ? "Discord roles already match."
+        : `${assignedCount} roles assigned, ${removedCount} removed${failureText}.`,
+  };
 }
 
 export async function updateMemberRolesAction(

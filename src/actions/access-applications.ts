@@ -13,6 +13,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
   addKeycloakApplicationRole,
+  isApplicationGrantedByGroup,
   removeKeycloakApplicationRole,
   syncApplicationMappingChange,
   syncArchivedApplicationRoles,
@@ -390,6 +391,9 @@ export async function setMemberApplicationAccessAction(
   }
 
   const currentMemberId = await getCurrentMemberId();
+  const stillGrantedByGroup = parsed.data.assigned
+    ? false
+    : await isApplicationGrantedByGroup(memberId, application.id);
 
   try {
     if (!member.disabledAt) {
@@ -398,7 +402,7 @@ export async function setMemberApplicationAccessAction(
           application,
           keycloakId: member.keycloakId,
         });
-      } else {
+      } else if (!stillGrantedByGroup) {
         await removeKeycloakApplicationRole({
           application,
           keycloakId: member.keycloakId,
@@ -442,6 +446,8 @@ export async function setMemberApplicationAccessAction(
     ok: true,
     message: parsed.data.assigned
       ? "Application access granted."
-      : "Application access removed.",
+      : stillGrantedByGroup
+        ? "Direct access removed. Access is still granted via a group."
+        : "Application access removed.",
   };
 }

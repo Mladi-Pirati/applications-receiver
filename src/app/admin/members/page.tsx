@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { db } from "@/db";
 import {
   accessApplications,
+  groups,
   mladiPiratiMembershipApplications,
   roles,
 } from "@/db/schema";
@@ -34,6 +35,7 @@ export default async function MembersPage({
   const [
     { rows, pageCount, totalCount },
     roleOptions,
+    groupOptions,
     applicationOptions,
     pendingApplications,
   ] = await Promise.all([
@@ -45,6 +47,13 @@ export default async function MembersPage({
       })
       .from(roles)
       .orderBy(roles.rank),
+    db
+      .select({
+        id: groups.id,
+        name: groups.name,
+      })
+      .from(groups)
+      .orderBy(asc(groups.name)),
     db
       .select({
         id: accessApplications.id,
@@ -78,6 +87,11 @@ export default async function MembersPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {permissions.includes("members.manage_onboarding") ? (
+            <Button asChild variant="outline">
+              <Link href="/admin/members/onboarding">Onboarding</Link>
+            </Button>
+          ) : null}
           <Button asChild variant="outline">
             <Link href="/admin/members/applications">
               Applications
@@ -104,6 +118,7 @@ export default async function MembersPage({
         canCreate={permissions.includes("members.create")}
         canManageRoles={permissions.includes("members.role_management")}
         filters={filters}
+        groupOptions={groupOptions}
         nextPageHref={buildMembersListHref({
           ...filters,
           page: Math.min(pageCount, filters.page + 1),

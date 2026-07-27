@@ -7,6 +7,11 @@ import {
   accessApplications,
   addresses,
   contacts,
+  groupDiscordRoles,
+  groups,
+  memberDiscordRoles,
+  memberDiscordRoleSyncs,
+  memberGroups,
   memberApplicationAccess,
   memberRoles,
   members,
@@ -18,6 +23,7 @@ import {
   getCurrentUserPermissions,
   requirePermission,
 } from "@/lib/auth/permissions";
+import { getProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 export default async function MemberDetailPage({
   params,
@@ -48,6 +54,11 @@ export default async function MemberDetailPage({
     assignedRoleRows,
     applicationRows,
     assignedApplicationRows,
+    groupRows,
+    assignedGroupRows,
+    directDiscordRoleRows,
+    groupDiscordRoleRows,
+    discordSyncRows,
   ] = await Promise.all([
     db
       .select({
@@ -124,15 +135,66 @@ export default async function MemberDetailPage({
       })
       .from(memberApplicationAccess)
       .where(eq(memberApplicationAccess.memberId, member.id)),
+    db
+      .select({
+        description: groups.description,
+        id: groups.id,
+        name: groups.name,
+      })
+      .from(groups)
+      .orderBy(asc(groups.name)),
+    db
+      .select({ groupId: memberGroups.groupId })
+      .from(memberGroups)
+      .where(eq(memberGroups.memberId, member.id)),
+    db
+      .select({
+        id: memberDiscordRoles.discordRoleId,
+        name: memberDiscordRoles.discordRoleName,
+      })
+      .from(memberDiscordRoles)
+      .where(eq(memberDiscordRoles.memberId, member.id)),
+    db
+      .select({
+        id: groupDiscordRoles.discordRoleId,
+        name: groupDiscordRoles.discordRoleName,
+      })
+      .from(memberGroups)
+      .innerJoin(
+        groupDiscordRoles,
+        eq(memberGroups.groupId, groupDiscordRoles.groupId),
+      )
+      .where(eq(memberGroups.memberId, member.id)),
+    db
+      .select({
+        discordRoleId: memberDiscordRoleSyncs.discordRoleId,
+        discordRoleName: memberDiscordRoleSyncs.discordRoleName,
+        errorMessage: memberDiscordRoleSyncs.errorMessage,
+        status: memberDiscordRoleSyncs.status,
+        syncedAt: memberDiscordRoleSyncs.syncedAt,
+      })
+      .from(memberDiscordRoleSyncs)
+      .where(eq(memberDiscordRoleSyncs.memberId, member.id)),
   ]);
 
   const primaryEmail =
     contactRows.find((contact) => contact.type === "email" && contact.isPrimary)
       ?.value ?? "";
+  const discordUsername =
+    contactRows.find((contact) => contact.type === "discord")?.value ?? null;
+  const desiredDiscordRoles = [
+    ...new Map(
+      [...directDiscordRoleRows, ...groupDiscordRoleRows].map((role) => [
+        role.id,
+        role,
+      ]),
+    ).values(),
+  ];
 
   return (
     <MemberDetailManagement
       addresses={addressRows}
+      assignedGroupIds={assignedGroupRows.map((row) => row.groupId)}
       assignedRoles={assignedRoleRows}
       applications={applicationRows.map((application) => ({
         ...application,
@@ -147,6 +209,14 @@ export default async function MemberDetailPage({
       canDelete={canDelete}
       canUpdate={canUpdate}
       contacts={contactRows}
+      desiredDiscordRoles={desiredDiscordRoles}
+      discordSyncs={discordSyncRows.map((row) => ({
+        ...row,
+        syncedAt: row.syncedAt.toISOString(),
+      }))}
+      discordUserId={member.discordUserId}
+      discordUsername={discordUsername}
+      groups={groupRows}
       member={{
         dateOfBirth: member.dateOfBirth,
         disabledAt: member.disabledAt?.toISOString() ?? null,
@@ -158,6 +228,7 @@ export default async function MemberDetailPage({
         notes: member.notes,
         placeOfBirth: member.placeOfBirth,
         primaryEmail,
+        profilePicture: getProfilePictureDescriptor(member),
         residenceRegion: member.residenceRegion,
         username: member.username,
       }}

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 import {
+  CircleUserIcon,
   HomeIcon,
   MailIcon,
   ShieldIcon,
@@ -52,6 +53,13 @@ export function AdminNavLinks({
       icon: ShieldIcon,
       active: pathname.startsWith("/admin/settings/roles"),
       requiredPermission: "access-control.manage_roles",
+    },
+    {
+      href: "/me",
+      label: "Member area",
+      icon: CircleUserIcon,
+      active: pathname.startsWith("/me"),
+      requiredPermission: null,
     },
   ].filter(
     (item) =>

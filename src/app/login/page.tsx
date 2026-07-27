@@ -35,16 +35,16 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
 
   if (session?.user) {
-    redirect("/admin");
+    redirect("/");
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-12">
       <Card className="w-full max-w-md">
         <CardHeader className="border-b">
-          <CardTitle>Admin login</CardTitle>
+          <CardTitle>Sign in</CardTitle>
           <CardDescription>
-            Sign in with Keycloak to access the admin panel.
+            Sign in with your Keycloak account to continue.
           </CardDescription>
         </CardHeader>
         <CardContent>

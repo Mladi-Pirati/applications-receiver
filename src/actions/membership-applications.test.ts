@@ -1,7 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { sendDiscordApprovalEvent } from "@/lib/discord/approval-events";
-
 let allowed = true;
 let applicationRows: Record<
   string,
@@ -23,46 +21,15 @@ let applicationRows: Record<
 let revalidatedPaths: Array<string> = [];
 let provisionedApplicationIds: Array<string> = [];
 let provisionedApplications: Array<Record<string, unknown>> = [];
-let discordApprovalEvents: Array<Record<string, unknown>> = [];
-let discordApprovalEventRequests: Array<{
-  headers: Headers;
-  input: RequestInfo | URL;
-  method: string | undefined;
-}> = [];
-let discordApprovalEventShouldFail = false;
+let onboardingDefaultsApplied: Array<{ keycloakId: string; memberId: string }> =
+  [];
+let discordSyncMemberIds: Array<string> = [];
+let onboardingShouldFail = false;
+let discordSyncShouldFail = false;
 let currentUpdateApplicationId = "application-1";
 let currentUpdateApplicationIds: Array<string> = [];
 let currentFindFirstApplicationIds: Array<string> = [];
 const originalConsoleError = console.error;
-const originalFetch = globalThis.fetch;
-const originalWebhookUrl = process.env.DISCORD_BOT_APPROVAL_WEBHOOK_URL;
-const originalWebhookSecret = process.env.DISCORD_BOT_APPROVAL_WEBHOOK_SECRET;
-
-async function captureDiscordApprovalEventFetch(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) {
-  discordApprovalEventRequests.push({
-    headers: new Headers(init?.headers),
-    input,
-    method: init?.method,
-  });
-  discordApprovalEvents.push(JSON.parse(String(init?.body)));
-
-  if (discordApprovalEventShouldFail) {
-    throw new Error("Discord bot unavailable");
-  }
-
-  return new Response(null, { status: 204 });
-}
-
-function restoreEnvValue(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = value;
-  }
-}
 
 async function hasPermission(permissionKey: string) {
   expect(["members.delete", "members.read"]).toContain(permissionKey);
@@ -79,6 +46,19 @@ async function provisionMembershipApplicationMember(application: {
     memberId: `member-${application.id}`,
     status: "success" as const,
   };
+}
+
+async function applyOnboardingDefaultsSafely(values: {
+  keycloakId: string;
+  memberId: string;
+}) {
+  onboardingDefaultsApplied.push(values);
+  if (onboardingShouldFail) console.error("onboarding failed");
+}
+
+async function syncMemberDiscordRolesSafely(memberId: string) {
+  discordSyncMemberIds.push(memberId);
+  if (discordSyncShouldFail) console.error("discord failed");
 }
 
 function revalidatePath(path: string) {
@@ -195,25 +175,17 @@ const db = {
 
 mock.module("next/cache", () => ({ revalidatePath }));
 mock.module("@/lib/membership-application-action-dependencies", () => ({
+  applyOnboardingDefaultsSafely,
   db,
   hasPermission,
   provisionMembershipApplicationMember,
-  sendDiscordApprovalEvent,
+  syncMemberDiscordRolesSafely,
 }));
 
 const membershipApplicationActionsPromise = import("./membership-applications");
 
 afterAll(() => {
   console.error = originalConsoleError;
-  globalThis.fetch = originalFetch;
-  restoreEnvValue(
-    "DISCORD_BOT_APPROVAL_WEBHOOK_URL",
-    originalWebhookUrl,
-  );
-  restoreEnvValue(
-    "DISCORD_BOT_APPROVAL_WEBHOOK_SECRET",
-    originalWebhookSecret,
-  );
   mock.restore();
 });
 
@@ -252,20 +224,18 @@ beforeEach(() => {
   revalidatedPaths = [];
   provisionedApplicationIds = [];
   provisionedApplications = [];
-  discordApprovalEvents = [];
-  discordApprovalEventRequests = [];
-  discordApprovalEventShouldFail = false;
+  onboardingDefaultsApplied = [];
+  discordSyncMemberIds = [];
+  onboardingShouldFail = false;
+  discordSyncShouldFail = false;
   currentUpdateApplicationId = "application-1";
   currentUpdateApplicationIds = [];
   currentFindFirstApplicationIds = [];
-  process.env.DISCORD_BOT_APPROVAL_WEBHOOK_URL = "https://bot.test/approval";
-  process.env.DISCORD_BOT_APPROVAL_WEBHOOK_SECRET = "test-secret";
-  globalThis.fetch = captureDiscordApprovalEventFetch as typeof fetch;
   console.error = (() => {}) as typeof console.error;
 });
 
-describe("membership application Discord approval events", () => {
-  test("single approval emits a Discord approval event with the application username", async () => {
+describe("membership application approval provisioning", () => {
+  test("single approval applies onboarding defaults and syncs Discord for the created member", async () => {
     const { updateMembershipApplicationStatusAction } =
       await membershipApplicationActionsPromise;
 
@@ -285,16 +255,16 @@ describe("membership application Discord approval events", () => {
       placeOfBirth: "Ljubljana",
       residenceRegion: "Osrednjeslovenska",
     });
-    expect(discordApprovalEvents).toHaveLength(1);
-    expect(discordApprovalEvents[0]).toMatchObject({
-      event: "membership_application_approved",
-      applicationId: "application-1",
-      discordUsername: "ana",
-    });
-    expect(discordApprovalEventRequests[0]?.method).toBe("POST");
+    expect(onboardingDefaultsApplied).toEqual([
+      {
+        keycloakId: "keycloak-application-1",
+        memberId: "member-application-1",
+      },
+    ]);
+    expect(discordSyncMemberIds).toEqual(["member-application-1"]);
   });
 
-  test("non-approval status changes do not emit Discord approval events", async () => {
+  test("non-approval status changes do not provision onboarding or Discord sync", async () => {
     const { updateMembershipApplicationStatusAction } =
       await membershipApplicationActionsPromise;
 
@@ -308,10 +278,11 @@ describe("membership application Discord approval events", () => {
 
     expect(result).toMatchObject({ ok: true, status: "rejected" });
     expect(provisionedApplicationIds).toEqual([]);
-    expect(discordApprovalEvents).toEqual([]);
+    expect(onboardingDefaultsApplied).toEqual([]);
+    expect(discordSyncMemberIds).toEqual([]);
   });
 
-  test("bulk approval emits one event per approved application with a Discord username", async () => {
+  test("bulk approval applies onboarding and syncs each provisioned member", async () => {
     const { bulkMembershipApplicationAction } =
       await membershipApplicationActionsPromise;
     currentUpdateApplicationIds = ["application-1", "application-2"];
@@ -331,12 +302,17 @@ describe("membership application Discord approval events", () => {
       "application-1",
       "application-2",
     ]);
-    expect(discordApprovalEvents.map((event) => event.applicationId)).toEqual([
-      "application-1",
+    expect(onboardingDefaultsApplied.map((row) => row.memberId)).toEqual([
+      "member-application-1",
+      "member-application-2",
+    ]);
+    expect(discordSyncMemberIds).toEqual([
+      "member-application-1",
+      "member-application-2",
     ]);
   });
 
-  test("delete action does not emit Discord approval events", async () => {
+  test("delete action does not provision onboarding or Discord sync", async () => {
     const { deleteMembershipApplicationAction } =
       await membershipApplicationActionsPromise;
 
@@ -344,13 +320,15 @@ describe("membership application Discord approval events", () => {
 
     expect(result).toMatchObject({ ok: true });
     expect(provisionedApplicationIds).toEqual([]);
-    expect(discordApprovalEvents).toEqual([]);
+    expect(onboardingDefaultsApplied).toEqual([]);
+    expect(discordSyncMemberIds).toEqual([]);
   });
 
-  test("Discord event failures do not fail approval", async () => {
+  test("safe onboarding and Discord failures do not fail approval", async () => {
     const { updateMembershipApplicationStatusAction } =
       await membershipApplicationActionsPromise;
-    discordApprovalEventShouldFail = true;
+    onboardingShouldFail = true;
+    discordSyncShouldFail = true;
 
     const result = await updateMembershipApplicationStatusAction(
       "application-1",
@@ -362,6 +340,7 @@ describe("membership application Discord approval events", () => {
       status: "approved",
       memberCreationStatus: "success",
     });
-    expect(discordApprovalEvents).toHaveLength(1);
+    expect(onboardingDefaultsApplied).toHaveLength(1);
+    expect(discordSyncMemberIds).toHaveLength(1);
   });
 });

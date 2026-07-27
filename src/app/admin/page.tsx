@@ -1,12 +1,21 @@
+import { redirect } from "next/navigation";
+
 import { AgeChart } from "@/components/admin/dashboard/age-chart";
 import { GrowthChart } from "@/components/admin/dashboard/growth-chart";
 import { RegionChart } from "@/components/admin/dashboard/region-chart";
 import { StatCards } from "@/components/admin/dashboard/stat-cards";
+import { getCurrentUserPermissions } from "@/lib/auth/permissions";
 import { requireReadyUser } from "@/lib/auth/session";
 import { getDashboardAnalytics } from "@/lib/dashboard-analytics";
 
 export default async function AdminDashboardPage() {
   const user = await requireReadyUser();
+  const { roles } = await getCurrentUserPermissions();
+
+  if (roles.length === 0) {
+    redirect("/me");
+  }
+
   const analytics = await getDashboardAnalytics();
 
   return (
