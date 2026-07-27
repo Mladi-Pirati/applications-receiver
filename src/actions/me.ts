@@ -229,7 +229,7 @@ export async function upsertMyContactAction(
       ok: false,
       message: "Please fix the highlighted fields.",
       fieldErrors: {
-        type: "Discord is linked with a code via the /link command in Discord — use the Link button on the discord row.",
+        type: "Discord is linked with a code via the /verify-link command in Discord — use the Link button on the discord row.",
       },
     };
   }

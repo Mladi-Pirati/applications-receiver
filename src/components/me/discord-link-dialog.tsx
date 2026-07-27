@@ -72,7 +72,7 @@ export function DiscordLinkDialog({
 
   function close() {
     setOpen(false);
-    // The member may have completed /link while the dialog was open.
+    // The member may have completed /verify-link while the dialog was open.
     router.refresh();
   }
 
@@ -140,7 +140,7 @@ export function DiscordLinkDialog({
               <>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 rounded-md border bg-muted px-3 py-2 text-center font-mono text-lg font-bold tracking-widest">
-                    /link {code}
+                    /verify-link code:{code}
                   </code>
                   <Button
                     disabled={isPending}

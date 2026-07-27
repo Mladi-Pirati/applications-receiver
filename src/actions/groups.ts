@@ -470,6 +470,7 @@ export async function setGroupDiscordRolesAction(
 export async function setMemberGroupAssignmentAction(
   memberId: string,
   values: { assigned: boolean; groupId: string },
+  options: { revalidate?: boolean } = {},
 ): Promise<ActionResult> {
   const access = await requireMemberGroupPermission();
   if (!access.ok) return access;
@@ -546,7 +547,9 @@ export async function setMemberGroupAssignmentAction(
   }
 
   await syncMemberDiscordRolesSafely(memberId);
-  revalidateGroups(memberId);
+  if (options.revalidate !== false) {
+    revalidateGroups(memberId);
+  }
   return {
     ok: true,
     message: parsed.data.assigned ? "Group granted." : "Group removed.",

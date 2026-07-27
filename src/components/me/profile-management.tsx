@@ -444,8 +444,8 @@ function ContactsCard({
                   : "Not linked"}
               </p>
               <p className="text-xs text-muted-foreground">
-                Linked with the /link command in Discord; the username is kept
-                in sync automatically.
+                Linked with the /verify-link command in Discord; the username is
+                kept in sync automatically.
               </p>
             </div>
             <div className="flex gap-2 sm:justify-end">
