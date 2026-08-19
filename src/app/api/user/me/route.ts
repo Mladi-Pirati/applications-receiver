@@ -1,19 +1,12 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { db } from "@/db";
-import {
-  accessApplications,
-  contacts,
-  memberApplicationAccess,
-  memberRoles,
-  members,
-  memberships,
-  roles,
-} from "@/db/schema";
+import { contacts, members, memberships } from "@/db/schema";
 import { createCorsPreflightResponse, withCors } from "@/lib/api/cors";
 import { verifyKeycloakAccessToken } from "@/lib/auth/keycloak-jwks";
+import { getEffectiveAccess } from "@/lib/effective-access";
 import { getProfilePictureDescriptor } from "@/lib/profile-pictures";
 
 export const runtime = "nodejs";
@@ -111,52 +104,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const [memberContacts, memberMemberships, memberRoleRows, memberApplications] =
-      await Promise.all([
-        db
-          .select({
-            type: contacts.type,
-            value: contacts.value,
-            label: contacts.label,
-            isPrimary: contacts.isPrimary,
-            sortOrder: contacts.sortOrder,
-          })
-          .from(contacts)
-          .where(eq(contacts.memberId, member.id)),
-        db
-          .select({
-            extendedAt: memberships.extendedAt,
-            expiresAt: memberships.expiresAt,
-            endedAt: memberships.endedAt,
-          })
-          .from(memberships)
-          .where(eq(memberships.memberId, member.id)),
-        db
-          .select({
-            key: roles.key,
-            name: roles.name,
-          })
-          .from(memberRoles)
-          .innerJoin(roles, eq(memberRoles.roleId, roles.id))
-          .where(eq(memberRoles.memberId, member.id)),
-        db
-          .select({
-            id: accessApplications.id,
-            name: accessApplications.name,
-            keycloakClientId: accessApplications.keycloakClientId,
-          })
-          .from(memberApplicationAccess)
-          .innerJoin(
-            accessApplications,
-            eq(memberApplicationAccess.applicationId, accessApplications.id),
-          )
-          .where(
-            and(
-              eq(memberApplicationAccess.memberId, member.id),
-              isNull(accessApplications.archivedAt),
-            ),
-          ),
-      ]);
+    const [memberContacts, memberMemberships, access] = await Promise.all([
+      db
+        .select({
+          type: contacts.type,
+          value: contacts.value,
+          label: contacts.label,
+          isPrimary: contacts.isPrimary,
+          sortOrder: contacts.sortOrder,
+        })
+        .from(contacts)
+        .where(eq(contacts.memberId, member.id)),
+      db
+        .select({
+          extendedAt: memberships.extendedAt,
+          expiresAt: memberships.expiresAt,
+          endedAt: memberships.endedAt,
+        })
+        .from(memberships)
+        .where(eq(memberships.memberId, member.id)),
+      getEffectiveAccess(member.id),
+    ]);
 
     return withCors(
       request,
@@ -166,11 +134,18 @@ export async function GET(request: NextRequest) {
           firstName: member.firstName,
           lastName: member.lastName,
           username: member.username,
+          disabled: false,
           profilePicture: getProfilePictureDescriptor(member),
           contacts: memberContacts,
           memberships: memberMemberships,
-          roles: memberRoleRows,
-          applications: memberApplications,
+          access: {
+            roles: access.roles.map((role) => ({
+              key: role.key,
+              name: role.name,
+            })),
+            permissions: access.permissionKeys,
+            applications: access.applications,
+          },
         },
         { headers: NO_CACHE },
       ),

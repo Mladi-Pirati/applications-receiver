@@ -65,6 +65,16 @@ let applicationsResult: Array<{
   keycloakClientId: string;
 }> = [{ id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" }];
 
+let accessResult = {
+  roleIds: ["r1"],
+  roles: [{ id: "r1", key: "superadmin", name: "Superadmin" }],
+  permissionKeys: ["members.read"],
+  applicationIds: ["app-1"],
+  applications: [
+    { id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" },
+  ],
+};
+
 // --- mock tables ---
 
 const membersTable = { keycloakId: "keycloak_id" };
@@ -144,6 +154,9 @@ async function verifyKeycloakAccessToken(_token: string): Promise<JWTPayload> {
 }
 
 mock.module("@/lib/auth/keycloak-jwks", () => ({ verifyKeycloakAccessToken }));
+mock.module("@/lib/effective-access", () => ({
+  getEffectiveAccess: async () => accessResult,
+}));
 mock.module("@/db", () => ({ db }));
 mock.module("@/db/schema", () => ({
   members: membersTable,
@@ -196,6 +209,15 @@ beforeEach(() => {
   applicationsResult = [
     { id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" },
   ];
+  accessResult = {
+    roleIds: ["r1"],
+    roles: [{ id: "r1", key: "superadmin", name: "Superadmin" }],
+    permissionKeys: ["members.read"],
+    applicationIds: ["app-1"],
+    applications: [
+      { id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" },
+    ],
+  } as never;
 });
 
 afterAll(() => {
@@ -296,6 +318,7 @@ describe("GET /api/user/me", () => {
       firstName: "Ada",
       lastName: "Lovelace",
       username: "ada",
+      disabled: false,
       contacts: [
         {
           type: "email",
@@ -313,19 +336,29 @@ describe("GET /api/user/me", () => {
         },
       ],
       profilePicture: null,
-      roles: [{ key: "superadmin", name: "Superadmin" }],
-      applications: [
-        { id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" },
-      ],
+      access: {
+        roles: [{ key: "superadmin", name: "Superadmin" }],
+        permissions: ["members.read"],
+        applications: [
+          { id: "app-1", name: "Legalizirajmo", keycloakClientId: "legalizirajmo" },
+        ],
+      },
     });
   });
 
-  test("returns 200 with empty arrays when member has no contacts, memberships, roles, or applications", async () => {
+  test("returns 200 with empty access when member has no contacts, memberships, roles, or applications", async () => {
     const { GET } = await routeModulePromise;
     contactsResult = [];
     membershipsResult = [];
     rolesResult = [];
     applicationsResult = [];
+    accessResult = {
+      roleIds: [],
+      roles: [],
+      permissionKeys: [],
+      applicationIds: [],
+      applications: [],
+    } as never;
     const response = await GET(
       createRequest("Bearer valid.token.here") as never,
     );
@@ -337,11 +370,11 @@ describe("GET /api/user/me", () => {
       firstName: "Ada",
       lastName: "Lovelace",
       username: "ada",
+      disabled: false,
       contacts: [],
       memberships: [],
       profilePicture: null,
-      roles: [],
-      applications: [],
+      access: { roles: [], permissions: [], applications: [] },
     });
   });
 
